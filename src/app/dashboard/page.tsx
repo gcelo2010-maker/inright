@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic'
 import { createClient } from '@/lib/supabase/server'
 import { formatAmount, formatDateShort } from '@/lib/utils'
 import Link from 'next/link'
