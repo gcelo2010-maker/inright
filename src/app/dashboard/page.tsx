@@ -5,164 +5,154 @@ import Link from 'next/link'
 
 const fmt = (n: number) => {
   if (!n) return '0'
-  if (Math.abs(n) >= 1e6) return (n/1e6).toFixed(2) + 'M'
-  if (Math.abs(n) >= 1000) return (n/1000).toFixed(0) + 'K'
+  if (Math.abs(n) >= 1e6) return (n/1e6).toFixed(2)+'M'
+  if (Math.abs(n) >= 1000) return (n/1000).toFixed(0)+'K'
   return new Intl.NumberFormat('sq-AL',{maximumFractionDigits:0}).format(n)
 }
-const fmtD = (d: string) => d ? new Date(d).toLocaleDateString('sq-AL',{day:'2-digit',month:'short'}) : ''
+const fmtDate = (d: string) => d ? new Date(d).toLocaleDateString('sq-AL',{day:'2-digit',month:'short'}) : ''
+
+type StRow = { review_status: string; amount: number }
 
 export default function DashboardPage() {
-  const [summary, setSummary] = useState<Record<string,unknown>|null>(null)
-  const [recent, setRecent] = useState<Record<string,unknown>[]>([])
-  const [staging, setStaging] = useState<{pending:number,approved:number,total:number}>({pending:0,approved:0,total:0})
+  const [staging, setStaging] = useState<StRow[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     const sb = createClient()
-    Promise.all([
-      sb.rpc('rpc_dashboard_summary'),
-      sb.from('v_transactions_detail').select('id,type,amount,description,date,category_color,category_name').eq('is_deleted',false).order('date',{ascending:false}).limit(5),
-      sb.from('import_staging').select('review_status,amount').eq('import_batch','azotiku.xls')
-    ]).then(([{data:s},{data:tx},{data:st}]) => {
-      setSummary(s)
-      setRecent(tx||[])
-      const rows = st||[]
-      setStaging({
-        pending: rows.filter((r:{review_status:string})=>r.review_status==='pending').length,
-        approved: rows.filter((r:{review_status:string})=>r.review_status==='approved').length,
-        total: rows.reduce((s:number,r:{amount:number})=>s+Number(r.amount),0)
+    sb.from('import_staging')
+      .select('review_status,amount')
+      .eq('import_batch','azotiku.xls')
+      .then(({data}) => {
+        setStaging((data||[]) as StRow[])
+        setLoading(false)
       })
-      setLoading(false)
-    })
   }, [])
 
   if (loading) return (
     <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'60vh',flexDirection:'column',gap:'12px'}}>
-      <div style={{width:'36px',height:'36px',border:'3px solid #e5e7eb',borderTop:'3px solid #111',borderRadius:'50%',animation:'spin .7s linear infinite'}}></div>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-      <p style={{color:'#9ca3af',fontSize:'13px'}}>Duke ngarkuar...</p>
+      <div style={{width:'40px',height:'40px',border:'3px solid #1a1a2e',borderTop:'3px solid #c9a84c',borderRadius:'50%',animation:'spin .8s linear infinite'}}></div>
+      <p style={{color:'#666',fontSize:'13px',letterSpacing:'1px',textTransform:'uppercase'}}>InRight</p>
     </div>
   )
 
-  const s = summary||{}
-  const cf = (s.monthly_cashflow as Record<string,number>[])||[]
-  const maxV = Math.max(...cf.map(m=>Math.max(Number(m.income)||0,Number(m.expenses)||0)),1)
+  const total = staging.reduce((s,r)=>s+Number(r.amount),0)
+  const pending = staging.filter(r=>r.review_status==='pending')
+  const approved = staging.filter(r=>r.review_status==='approved')
+  const imported = staging.filter(r=>r.review_status==='imported')
+  const pendingAmt = pending.reduce((s,r)=>s+Number(r.amount),0)
+  const approvedAmt = approved.reduce((s,r)=>s+Number(r.amount),0)
+  const importedAmt = imported.reduce((s,r)=>s+Number(r.amount),0)
 
   return (
-    <div style={{padding:'16px',display:'flex',flexDirection:'column',gap:'12px'}}>
+    <div style={{background:'#0a0a0f',minHeight:'100vh',padding:'20px 16px 24px',color:'#fff'}}>
+      <style>{`
+        @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+        .card-anim{animation:fadeIn .4s ease forwards}
+      `}</style>
 
-      {/* HERO */}
-      <div style={{background:'linear-gradient(135deg,#111 0%,#1f2937 100%)',borderRadius:'20px',padding:'20px',color:'#fff',position:'relative',overflow:'hidden'}}>
-        <div style={{position:'absolute',top:'-20px',right:'-20px',width:'120px',height:'120px',background:'rgba(255,255,255,.05)',borderRadius:'50%'}}></div>
-        <div style={{position:'absolute',bottom:'-30px',right:'30px',width:'80px',height:'80px',background:'rgba(255,255,255,.03)',borderRadius:'50%'}}></div>
-        <p style={{fontSize:'10px',color:'rgba(255,255,255,.5)',textTransform:'uppercase',letterSpacing:'1px',margin:'0 0 4px'}}>Bilanci Neto</p>
-        <p style={{fontSize:'32px',fontWeight:'700',letterSpacing:'-1.5px',margin:'0 0 16px',fontVariantNumeric:'tabular-nums'}}>
-          {fmt(Number(s.balance)||0)} <span style={{fontSize:'14px',opacity:.4,fontWeight:'400'}}>LEK</span>
-        </p>
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'12px',paddingTop:'14px',borderTop:'1px solid rgba(255,255,255,.1)'}}>
-          <div>
-            <p style={{fontSize:'9px',color:'rgba(255,255,255,.4)',margin:'0 0 2px',textTransform:'uppercase',letterSpacing:'.5px'}}>↑ Të Ardhura</p>
-            <p style={{fontSize:'14px',color:'#4ade80',fontWeight:'600',margin:0,fontVariantNumeric:'tabular-nums'}}>{fmt(Number(s.total_income)||0)} L</p>
+      {/* HEADER */}
+      <div style={{marginBottom:'24px'}} className="card-anim">
+        <p style={{fontSize:'11px',color:'#c9a84c',textTransform:'uppercase',letterSpacing:'2px',margin:'0 0 4px'}}>F4Invest · Import Magazina Fier</p>
+        <h1 style={{fontSize:'28px',fontWeight:'800',letterSpacing:'-1px',margin:0,background:'linear-gradient(135deg,#fff 0%,#c9a84c 100%)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent'}}>
+          {fmt(total)} LEK
+        </h1>
+        <p style={{fontSize:'12px',color:'#666',margin:'4px 0 0'}}>Total import nga azotiku.xls · {staging.length} transaksione</p>
+      </div>
+
+      {/* MAIN STATS */}
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px',marginBottom:'14px'}}>
+        {[
+          {label:'Pending Aprovim',val:pending.length,amt:pendingAmt,color:'#f59e0b',bg:'rgba(245,158,11,.12)',icon:'⏳'},
+          {label:'Aprovuar',val:approved.length,amt:approvedAmt,color:'#c9a84c',bg:'rgba(201,168,76,.12)',icon:'✓'},
+          {label:'Importuar në TX',val:imported.length,amt:importedAmt,color:'#a78bfa',bg:'rgba(167,139,250,.12)',icon:'↗'},
+          {label:'Total Rreshta',val:staging.length,amt:total,color:'#67e8f9',bg:'rgba(103,232,249,.08)',icon:'≡'},
+        ].map((item,i)=>(
+          <div key={i} className="card-anim" style={{
+            background:item.bg,border:`1px solid ${item.color}30`,borderRadius:'16px',
+            padding:'16px',animationDelay:`${i*0.08}s`,opacity:0
+          }}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:'10px'}}>
+              <span style={{fontSize:'10px',color:'#888',textTransform:'uppercase',letterSpacing:'.8px',lineHeight:1.3}}>{item.label}</span>
+              <span style={{fontSize:'18px'}}>{item.icon}</span>
+            </div>
+            <p style={{fontSize:'28px',fontWeight:'800',color:item.color,margin:'0 0 2px',fontVariantNumeric:'tabular-nums',letterSpacing:'-1px'}}>{item.val}</p>
+            <p style={{fontSize:'11px',color:'#555',margin:0,fontVariantNumeric:'tabular-nums'}}>{fmt(item.amt)} LEK</p>
           </div>
-          <div>
-            <p style={{fontSize:'9px',color:'rgba(255,255,255,.4)',margin:'0 0 2px',textTransform:'uppercase',letterSpacing:'.5px'}}>↓ Shpenzime</p>
-            <p style={{fontSize:'14px',color:'#f87171',fontWeight:'600',margin:0,fontVariantNumeric:'tabular-nums'}}>{fmt(Number(s.total_expenses)||0)} L</p>
-          </div>
+        ))}
+      </div>
+
+      {/* PROGRESS BAR */}
+      <div className="card-anim" style={{background:'rgba(255,255,255,.04)',border:'1px solid rgba(255,255,255,.08)',borderRadius:'16px',padding:'18px',marginBottom:'14px',animationDelay:'.32s',opacity:0}}>
+        <div style={{display:'flex',justifyContent:'space-between',marginBottom:'12px'}}>
+          <p style={{fontSize:'12px',color:'#888',margin:0,textTransform:'uppercase',letterSpacing:'.8px'}}>Progresi i Importit</p>
+          <p style={{fontSize:'12px',color:'#c9a84c',margin:0,fontWeight:'700'}}>{staging.length>0?Math.round((imported.length/staging.length)*100):0}%</p>
+        </div>
+        <div style={{background:'rgba(255,255,255,.06)',borderRadius:'100px',height:'6px',overflow:'hidden'}}>
+          <div style={{height:'100%',borderRadius:'100px',background:'linear-gradient(90deg,#c9a84c,#f59e0b)',width:`${staging.length>0?(imported.length/staging.length)*100:0}%`,transition:'width 1s ease'}}></div>
+        </div>
+        <div style={{display:'flex',justifyContent:'space-between',marginTop:'10px'}}>
+          <span style={{fontSize:'10px',color:'#555'}}>{imported.length} kaluar</span>
+          <span style={{fontSize:'10px',color:'#555'}}>{staging.length - imported.length} mbetur</span>
         </div>
       </div>
 
-      {/* IMPORT ALERT */}
-      {staging.pending > 0 && (
-        <Link href="/dashboard/import-review" style={{textDecoration:'none'}}>
-          <div style={{background:'#fffbeb',border:'1.5px solid #f59e0b',borderRadius:'14px',padding:'12px 16px',display:'flex',alignItems:'center',gap:'10px'}}>
-            <div style={{width:'36px',height:'36px',background:'#f59e0b',borderRadius:'10px',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,fontSize:'18px'}}>⚠️</div>
+      {/* ALERT - pending */}
+      {pending.length > 0 && (
+        <Link href="/dashboard/import-review" style={{textDecoration:'none',display:'block',marginBottom:'14px'}}>
+          <div className="card-anim" style={{background:'rgba(245,158,11,.1)',border:'1.5px solid rgba(245,158,11,.4)',borderRadius:'16px',padding:'16px',display:'flex',alignItems:'center',gap:'12px',animationDelay:'.4s',opacity:0}}>
+            <div style={{width:'44px',height:'44px',background:'rgba(245,158,11,.2)',borderRadius:'12px',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'20px',flexShrink:0}}>⚠</div>
             <div style={{flex:1}}>
-              <p style={{fontSize:'13px',fontWeight:'600',color:'#92400e',margin:'0 0 2px'}}>{staging.pending} transaksione presin aprovimin</p>
-              <p style={{fontSize:'11px',color:'#b45309',margin:0}}>Shuma totale: {fmt(staging.total)} LEK → Klikoni për të rishikuar</p>
+              <p style={{fontSize:'14px',fontWeight:'700',color:'#f59e0b',margin:'0 0 3px'}}>{pending.length} transaksione presin aprovimin</p>
+              <p style={{fontSize:'11px',color:'#f59e0b80',margin:0}}>{fmt(pendingAmt)} LEK · Kliko për të rishikuar →</p>
             </div>
-            <span style={{color:'#f59e0b',fontSize:'18px'}}>›</span>
           </div>
         </Link>
       )}
 
-      {/* STATS GRID */}
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
-        <div style={{background:'#fff',border:'1px solid #e5e7eb',borderRadius:'14px',padding:'14px'}}>
-          <p style={{fontSize:'9px',color:'#9ca3af',textTransform:'uppercase',letterSpacing:'.5px',margin:'0 0 6px'}}>💳 Kreditë aktive</p>
-          <p style={{fontSize:'20px',fontWeight:'700',color:'#111',margin:0,fontVariantNumeric:'tabular-nums'}}>{fmt(Number(s.loans_total)||0)}</p>
-          <p style={{fontSize:'10px',color:'#9ca3af',margin:'2px 0 0'}}>LEK borxh total</p>
-        </div>
-        <div style={{background:'#fff',border:'1px solid #e5e7eb',borderRadius:'14px',padding:'14px'}}>
-          <p style={{fontSize:'9px',color:'#9ca3af',textTransform:'uppercase',letterSpacing:'.5px',margin:'0 0 6px'}}>🏗️ Investime</p>
-          <p style={{fontSize:'20px',fontWeight:'700',color:'#111',margin:0}}>{String(s.active_investments||0)}</p>
-          <p style={{fontSize:'10px',color:'#9ca3af',margin:'2px 0 0'}}>projekte aktive</p>
-        </div>
-        <div style={{background:'#fff',border:'1px solid #e5e7eb',borderRadius:'14px',padding:'14px'}}>
-          <p style={{fontSize:'9px',color:'#9ca3af',textTransform:'uppercase',letterSpacing:'.5px',margin:'0 0 6px'}}>📥 Importi</p>
-          <p style={{fontSize:'20px',fontWeight:'700',color:'#f59e0b',margin:0}}>{staging.pending}</p>
-          <p style={{fontSize:'10px',color:'#9ca3af',margin:'2px 0 0'}}>pending aprovim</p>
-        </div>
-        <div style={{background:'#fff',border:'1px solid #e5e7eb',borderRadius:'14px',padding:'14px'}}>
-          <p style={{fontSize:'9px',color:'#9ca3af',textTransform:'uppercase',letterSpacing:'.5px',margin:'0 0 6px'}}>✅ Aprovuar</p>
-          <p style={{fontSize:'20px',fontWeight:'700',color:'#16a34a',margin:0}}>{staging.approved}</p>
-          <p style={{fontSize:'10px',color:'#9ca3af',margin:'2px 0 0'}}>gati për transfer</p>
+      {/* QUICK ACTIONS */}
+      <div className="card-anim" style={{marginBottom:'14px',animationDelay:'.48s',opacity:0}}>
+        <p style={{fontSize:'10px',color:'#555',textTransform:'uppercase',letterSpacing:'1px',margin:'0 0 10px'}}>Veprime të shpejta</p>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}}>
+          {[
+            {href:'/dashboard/import-review',label:'Rishiko Importin',sub:`${pending.length} pending`,icon:'📋',color:'#c9a84c'},
+            {href:'/dashboard/transactions',label:'Transaksionet',sub:`${imported.length} të importuara`,icon:'💱',color:'#a78bfa'},
+            {href:'/dashboard/loans',label:'Kreditë',sub:'Menaxhim borxhesh',icon:'🏦',color:'#67e8f9'},
+            {href:'/dashboard/investments',label:'Investimet',sub:'Magazina Fier',icon:'🏗️',color:'#4ade80'},
+          ].map((item,i)=>(
+            <Link key={i} href={item.href} style={{textDecoration:'none'}}>
+              <div style={{background:'rgba(255,255,255,.04)',border:'1px solid rgba(255,255,255,.08)',borderRadius:'14px',padding:'14px',cursor:'pointer'}}>
+                <span style={{fontSize:'22px',display:'block',marginBottom:'8px'}}>{item.icon}</span>
+                <p style={{fontSize:'12px',fontWeight:'600',color:'#fff',margin:'0 0 2px'}}>{item.label}</p>
+                <p style={{fontSize:'10px',color:item.color,margin:0}}>{item.sub}</p>
+              </div>
+            </Link>
+          ))}
         </div>
       </div>
 
-      {/* CASHFLOW CHART */}
-      {cf.length > 0 && (
-        <div style={{background:'#fff',border:'1px solid #e5e7eb',borderRadius:'14px',padding:'16px'}}>
-          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'16px'}}>
-            <p style={{fontSize:'13px',fontWeight:'600',color:'#111',margin:0}}>Cash Flow</p>
-            <p style={{fontSize:'10px',color:'#9ca3af',margin:0}}>6 muajt e fundit</p>
+      {/* SUPPLIER BREAKDOWN */}
+      <div className="card-anim" style={{background:'rgba(255,255,255,.04)',border:'1px solid rgba(255,255,255,.08)',borderRadius:'16px',padding:'18px',animationDelay:'.56s',opacity:0}}>
+        <p style={{fontSize:'12px',color:'#888',textTransform:'uppercase',letterSpacing:'.8px',margin:'0 0 14px'}}>Furnitorët kryesorë</p>
+        {[
+          {name:'VALONA KOSTRUKSION',amt:13750000,color:'#c9a84c'},
+          {name:'SITUACIONE VALONA',amt:18089790,color:'#f59e0b'},
+          {name:'A A R SH P K',amt:2694000,color:'#a78bfa'},
+          {name:'Taulant Ismailaj',amt:1960000,color:'#67e8f9'},
+          {name:'Genti Celo',amt:staging.filter(r=>r.review_status!=="imported").reduce((s:number,r:StRow)=>s+Number(r.amount),0),color:'#4ade80'},
+        ].map((s,i)=>(
+          <div key={i} style={{display:'flex',alignItems:'center',gap:'10px',padding:'8px 0',borderBottom:i<4?'1px solid rgba(255,255,255,.06)':'none'}}>
+            <div style={{width:'8px',height:'8px',borderRadius:'50%',background:s.color,flexShrink:0}}></div>
+            <span style={{flex:1,fontSize:'12px',color:'#ccc',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{s.name}</span>
+            <span style={{fontSize:'12px',fontWeight:'700',color:s.color,fontVariantNumeric:'tabular-nums',flexShrink:0}}>{fmt(s.amt)} L</span>
           </div>
-          <div style={{display:'flex',alignItems:'flex-end',gap:'6px',height:'80px'}}>
-            {cf.slice(-6).map((m,i)=>(
-              <div key={i} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:'4px'}}>
-                <div style={{display:'flex',gap:'2px',alignItems:'flex-end',height:'60px',width:'100%'}}>
-                  <div style={{flex:1,background:'#dcfce7',borderRadius:'3px 3px 0 0',minHeight:'3px',height:`${Math.round(((Number(m.income)||0)/maxV)*100)}%`}}></div>
-                  <div style={{flex:1,background:'#fee2e2',borderRadius:'3px 3px 0 0',minHeight:'3px',height:`${Math.round(((Number(m.expenses)||0)/maxV)*100)}%`}}></div>
-                </div>
-                <p style={{fontSize:'8px',color:'#9ca3af',margin:0,whiteSpace:'nowrap'}}>{String(m.month_label||'').split(' ')[0]}</p>
-              </div>
-            ))}
-          </div>
-          <div style={{display:'flex',gap:'16px',marginTop:'10px',paddingTop:'10px',borderTop:'1px solid #f3f4f6'}}>
-            <div style={{display:'flex',alignItems:'center',gap:'5px'}}><div style={{width:'10px',height:'10px',background:'#dcfce7',border:'1px solid #86efac',borderRadius:'2px'}}></div><span style={{fontSize:'10px',color:'#6b7280'}}>Të ardhura</span></div>
-            <div style={{display:'flex',alignItems:'center',gap:'5px'}}><div style={{width:'10px',height:'10px',background:'#fee2e2',border:'1px solid #fca5a5',borderRadius:'2px'}}></div><span style={{fontSize:'10px',color:'#6b7280'}}>Shpenzime</span></div>
-          </div>
-        </div>
-      )}
-
-      {/* RECENT TRANSACTIONS */}
-      <div style={{background:'#fff',border:'1px solid #e5e7eb',borderRadius:'14px',padding:'16px'}}>
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px'}}>
-          <p style={{fontSize:'13px',fontWeight:'600',color:'#111',margin:0}}>Transaksionet e fundit</p>
-          <Link href="/dashboard/transactions" style={{fontSize:'11px',color:'#6b7280',textDecoration:'none'}}>Të gjitha ›</Link>
-        </div>
-        {recent.length===0 ? (
-          <div style={{textAlign:'center',padding:'24px',color:'#9ca3af'}}>
-            <p style={{fontSize:'24px',margin:'0 0 6px'}}>📭</p>
-            <p style={{fontSize:'12px',margin:0}}>Nuk ka transaksione ende</p>
-            <Link href="/dashboard/import-review" style={{fontSize:'11px',color:'#6366f1',textDecoration:'none',display:'block',marginTop:'6px'}}>Importo nga staging →</Link>
-          </div>
-        ) : (
-          recent.map((t,i)=>(
-            <div key={String(t.id)} style={{display:'flex',alignItems:'center',gap:'10px',padding:'10px 0',borderBottom:i<recent.length-1?'1px solid #f9fafb':'none'}}>
-              <div style={{width:'36px',height:'36px',borderRadius:'10px',background:'#f3f4f6',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
-                <div style={{width:'10px',height:'10px',borderRadius:'50%',background:String(t.category_color||'#d1d5db')}}></div>
-              </div>
-              <div style={{flex:1,minWidth:0}}>
-                <p style={{fontSize:'12px',fontWeight:'500',color:'#111',margin:'0 0 2px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{String(t.description||'—')}</p>
-                <p style={{fontSize:'10px',color:'#9ca3af',margin:0}}>{fmtD(String(t.date||''))} · {String(t.category_name||'')}</p>
-              </div>
-              <p style={{fontSize:'13px',fontWeight:'600',margin:0,fontVariantNumeric:'tabular-nums',color:t.type==='income'?'#16a34a':'#dc2626',flexShrink:0}}>
-                {t.type==='expense'?'-':'+'}  {fmt(Number(t.amount)||0)}
-              </p>
-            </div>
-          ))
-        )}
+        ))}
       </div>
+
+      {/* DATE */}
+      <p style={{textAlign:'center',fontSize:'10px',color:'#333',marginTop:'20px',letterSpacing:'1px'}}>
+        {new Date().toLocaleDateString('sq-AL',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}
+      </p>
     </div>
   )
 }
