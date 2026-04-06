@@ -5,71 +5,64 @@ import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
 
 const NAV = [
-  { href:'/dashboard',               icon:'⊞', label:'Paneli' },
-  { href:'/dashboard/import-review', icon:'↑', label:'Importi' },
-  { href:'/dashboard/transactions',  icon:'⇄', label:'Transaksione' },
-  { href:'/dashboard/loans',         icon:'🏦', label:'Kreditë' },
-  { href:'/dashboard/investments',   icon:'📈', label:'Investimet' },
+  { href: '/dashboard', label: 'Panel', icon: '⬡' },
+  { href: '/dashboard/transactions', label: 'TX', icon: '⇄' },
+  { href: '/dashboard/import-review', label: 'Import', icon: '↑' },
+  { href: '/dashboard/loans', label: 'Kredi', icon: '◈' },
+  { href: '/dashboard/investments', label: 'Invest', icon: '▲' },
 ]
 
-export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+export default function Layout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const path = usePathname()
-  const [email, setEmail] = useState('')
+  const [user, setUser] = useState<{email?:string}|null>(null)
   const [loading, setLoading] = useState(true)
   const [menuOpen, setMenuOpen] = useState(false)
 
   useEffect(() => {
-    const supabase = createClient()
-    supabase.auth.getUser().then(({ data }) => {
-      if (!data.user) { router.replace('/login') }
-      else { setEmail(data.user.email||''); setLoading(false) }
+    const sb = createClient()
+    sb.auth.getUser().then(({ data }) => {
+      if (!data.user) { router.replace('/login'); return }
+      setUser(data.user)
+      setLoading(false)
     })
   }, [router])
 
   const logout = async () => {
-    const supabase = createClient()
-    await supabase.auth.signOut()
+    await createClient().auth.signOut()
     router.replace('/login')
   }
 
   if (loading) return (
-    <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'#f9fafb'}}>
-      <div style={{textAlign:'center'}}>
-        <div style={{width:'40px',height:'40px',background:'#111',borderRadius:'12px',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 12px'}}>
-          <span style={{color:'#fff',fontWeight:'700',fontSize:'16px'}}>IR</span>
-        </div>
-        <div style={{width:'24px',height:'24px',border:'2px solid #e5e7eb',borderTopColor:'#111',borderRadius:'50%',animation:'spin .7s linear infinite',margin:'0 auto'}}/>
-        <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-      </div>
+    <div style={{minHeight:'100vh',background:'#0a0a0f',display:'flex',alignItems:'center',justifyContent:'center',flexDirection:'column',gap:'16px'}}>
+      <div className="spinner"></div>
+      <p style={{color:'#c9a84c',fontSize:'11px',letterSpacing:'3px',textTransform:'uppercase'}}>InRight</p>
     </div>
   )
 
-  const initials = email.substring(0,2).toUpperCase()
-
   return (
-    <div style={{maxWidth:'430px',margin:'0 auto',minHeight:'100vh',background:'#f9fafb',display:'flex',flexDirection:'column',position:'relative'}}>
-
-      {/* TOPBAR */}
-      <div style={{background:'#fff',borderBottom:'1px solid #f3f4f6',padding:'12px 16px',display:'flex',alignItems:'center',justifyContent:'space-between',position:'sticky',top:0,zIndex:30,boxShadow:'0 1px 3px rgba(0,0,0,.04)'}}>
-        <div style={{display:'flex',alignItems:'center',gap:'10px'}}>
-          <div style={{width:'32px',height:'32px',background:'#111',borderRadius:'9px',display:'flex',alignItems:'center',justifyContent:'center'}}>
-            <span style={{color:'#fff',fontWeight:'700',fontSize:'13px'}}>IR</span>
+    <div style={{maxWidth:'430px',margin:'0 auto',minHeight:'100vh',background:'#0a0a0f',display:'flex',flexDirection:'column',position:'relative'}}>
+      {/* TOP BAR */}
+      <div style={{background:'rgba(10,10,15,.95)',backdropFilter:'blur(20px)',borderBottom:'1px solid rgba(201,168,76,.15)',padding:'12px 16px',display:'flex',alignItems:'center',justifyContent:'space-between',position:'sticky',top:0,zIndex:20}}>
+        <div style={{display:'flex',alignItems:'center',gap:'8px'}}>
+          <div style={{width:'28px',height:'28px',background:'linear-gradient(135deg,#c9a84c,#8b5e0a)',borderRadius:'8px',display:'flex',alignItems:'center',justifyContent:'center'}}>
+            <span style={{color:'#fff',fontWeight:'800',fontSize:'12px'}}>IR</span>
           </div>
-          <span style={{fontSize:'16px',fontWeight:'700',color:'#111',letterSpacing:'-0.5px'}}>InRight</span>
+          <span style={{fontSize:'15px',fontWeight:'700',background:'linear-gradient(135deg,#fff,#c9a84c)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent'}}>InRight</span>
         </div>
         <div style={{position:'relative'}}>
-          <button onClick={()=>setMenuOpen(!menuOpen)} style={{width:'36px',height:'36px',borderRadius:'50%',background:'#111',color:'#fff',border:'none',cursor:'pointer',fontSize:'13px',fontWeight:'600',display:'flex',alignItems:'center',justifyContent:'center'}}>
-            {initials}
+          <button onClick={()=>setMenuOpen(!menuOpen)} style={{background:'rgba(201,168,76,.1)',border:'1px solid rgba(201,168,76,.2)',borderRadius:'10px',padding:'6px 12px',color:'#c9a84c',fontSize:'11px',cursor:'pointer',display:'flex',alignItems:'center',gap:'6px'}}>
+            <span style={{fontSize:'10px',opacity:.7}}>{user?.email?.split('@')[0]}</span>
+            <span>{menuOpen?'▲':'▼'}</span>
           </button>
           {menuOpen && (
-            <div style={{position:'absolute',right:0,top:'44px',background:'#fff',border:'1px solid #e5e7eb',borderRadius:'12px',boxShadow:'0 4px 20px rgba(0,0,0,.1)',width:'200px',zIndex:50,overflow:'hidden'}}>
-              <div style={{padding:'12px 14px',borderBottom:'1px solid #f3f4f6'}}>
-                <div style={{fontSize:'11px',color:'#9ca3af',marginBottom:'2px'}}>Identifikuar si</div>
-                <div style={{fontSize:'12px',fontWeight:'500',color:'#111',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{email}</div>
+            <div style={{position:'absolute',right:0,top:'36px',background:'#1a1a24',border:'1px solid rgba(201,168,76,.2)',borderRadius:'12px',padding:'8px',minWidth:'160px',zIndex:30}}>
+              <div style={{padding:'8px 10px',borderBottom:'1px solid rgba(255,255,255,.06)',marginBottom:'6px'}}>
+                <p style={{fontSize:'11px',color:'#c9a84c',margin:'0 0 2px'}}>F4Invest</p>
+                <p style={{fontSize:'10px',color:'#606070',margin:0}}>{user?.email}</p>
               </div>
-              <button onClick={logout} style={{width:'100%',padding:'12px 14px',textAlign:'left',border:'none',background:'none',cursor:'pointer',fontSize:'13px',color:'#ef4444',fontFamily:'inherit',display:'flex',alignItems:'center',gap:'8px'}}>
-                <span>🚪</span> Dilni
+              <button onClick={logout} style={{width:'100%',padding:'8px 10px',background:'rgba(248,113,113,.1)',border:'1px solid rgba(248,113,113,.2)',borderRadius:'8px',color:'#f87171',fontSize:'12px',cursor:'pointer',textAlign:'left'}}>
+                ⎋ Dilni
               </button>
             </div>
           )}
@@ -77,23 +70,22 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </div>
 
       {/* CONTENT */}
-      <div style={{flex:1,overflowY:'auto',paddingBottom:'80px'}} onClick={()=>setMenuOpen(false)}>
+      <div style={{flex:1,overflowY:'auto',paddingBottom:'72px'}} onClick={()=>setMenuOpen(false)}>
         {children}
       </div>
 
       {/* BOTTOM NAV */}
-      <nav style={{position:'fixed',bottom:0,left:'50%',transform:'translateX(-50%)',width:'100%',maxWidth:'430px',background:'#fff',borderTop:'1px solid #f3f4f6',display:'flex',zIndex:20,boxShadow:'0 -2px 10px rgba(0,0,0,.05)'}}>
-        {NAV.map(({href,icon,label}) => {
-          const active = path === href || (href !== '/dashboard' && path.startsWith(href))
+      <nav style={{position:'fixed',bottom:0,left:'50%',transform:'translateX(-50%)',width:'100%',maxWidth:'430px',background:'rgba(10,10,15,.98)',backdropFilter:'blur(20px)',borderTop:'1px solid rgba(201,168,76,.15)',display:'flex',zIndex:20}}>
+        {NAV.map(({href,label,icon})=>{
+          const active = path===href||(href!=='/dashboard'&&path.startsWith(href))
           return (
-            <Link key={href} href={href} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',padding:'8px 2px 12px',textDecoration:'none',borderTop:`2px solid ${active?'#111':'transparent'}`,color:active?'#111':'#9ca3af',transition:'all .15s'}}>
-              <span style={{fontSize:'18px',lineHeight:1,marginBottom:'2px'}}>{icon}</span>
-              <span style={{fontSize:'9px',fontWeight:active?'600':'400',letterSpacing:'.3px'}}>{label}</span>
+            <Link key={href} href={href} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',padding:'10px 2px 12px',borderTop:`2px solid ${active?'#c9a84c':'transparent'}`,transition:'all .2s'}}>
+              <span style={{fontSize:'16px',lineHeight:1,color:active?'#c9a84c':'#606070'}}>{icon}</span>
+              <span style={{fontSize:'9px',marginTop:'3px',fontWeight:active?'700':'400',color:active?'#c9a84c':'#606070',letterSpacing:'.3px'}}>{label}</span>
             </Link>
           )
         })}
       </nav>
-
     </div>
   )
 }

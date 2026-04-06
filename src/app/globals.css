@@ -1,5 +1,31 @@
-*, *::before, *::after { box-sizing: border-box; }
-body { margin: 0; padding: 0; font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif; }
-a { text-decoration: none; }
-button { cursor: pointer; }
-input, select, textarea, button { font-family: inherit; }
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --gold: #c9a84c;
+  --gold-light: #e8c97e;
+  --dark: #0a0a0f;
+  --dark2: #111118;
+  --dark3: #1a1a24;
+  --dark4: #22222e;
+  --border: rgba(201,168,76,0.15);
+  --text: #ffffff;
+  --text2: #a0a0b0;
+  --text3: #606070;
+  --green: #4ade80;
+  --red: #f87171;
+  --amber: #fbbf24;
+  --violet: #a78bfa;
+  --cyan: #67e8f9;
+}
+html, body { height: 100%; background: var(--dark); color: var(--text); font-family: system-ui, -apple-system, sans-serif; }
+a { text-decoration: none; color: inherit; }
+button, input, select { font-family: inherit; }
+@keyframes fadeUp { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
+.fade-up { animation: fadeUp 0.5s ease forwards; opacity: 0; }
+.fade-up-1 { animation-delay: 0.05s; }
+.fade-up-2 { animation-delay: 0.1s; }
+.fade-up-3 { animation-delay: 0.15s; }
+.fade-up-4 { animation-delay: 0.2s; }
+.fade-up-5 { animation-delay: 0.25s; }
+.spinner { width:36px;height:36px;border:3px solid var(--dark4);border-top-color:var(--gold);border-radius:50%;animation:spin .8s linear infinite; }
