@@ -1,169 +1,106 @@
-export const dynamic = 'force-dynamic'
-import { createClient } from '@/lib/supabase/server'
+'use client'
+import { useEffect, useState } from 'react'
+import { createClient } from '@/lib/supabase/client'
 import { formatAmount, formatDateShort } from '@/lib/utils'
 import Link from 'next/link'
-import { AlertTriangle, ChevronRight, TrendingUp, TrendingDown, CreditCard, Building2, RefreshCw } from 'lucide-react'
-import { DashboardSummary, Transaction } from '@/lib/types'
 
-export default async function DashboardPage() {
-  const supabase = await createClient()
+export default function DashboardPage() {
+  const [summary, setSummary] = useState<Record<string,unknown>|null>(null)
+  const [recent, setRecent] = useState<Record<string,unknown>[]>([])
+  const [loading, setLoading] = useState(true)
 
-  const [{ data: summary }, { data: recent }] = await Promise.all([
-    supabase.rpc('rpc_dashboard_summary'),
-    supabase.from('v_transactions_detail')
-      .select('id,type,amount,description,date,status,category_color,category_name,created_by_name')
-      .eq('is_deleted', false)
-      .eq('status', 'approved')
-      .order('date', { ascending: false })
-      .limit(5),
-  ])
+  useEffect(() => {
+    const supabase = createClient()
+    Promise.all([
+      supabase.rpc('rpc_dashboard_summary'),
+      supabase.from('v_transactions_detail').select('*').eq('is_deleted',false).order('date',{ascending:false}).limit(5)
+    ]).then(([{data:s},{data:tx}]) => {
+      setSummary(s)
+      setRecent(tx || [])
+      setLoading(false)
+    })
+  }, [])
 
-  const s = summary as DashboardSummary | null
-  const cashflow = s?.monthly_cashflow ?? []
-  const maxVal = Math.max(...cashflow.map((m: { income: number; expenses: number }) => Math.max(m.income, m.expenses)), 1)
+  if (loading) return <div style={{padding:'48px',textAlign:'center',color:'#9ca3af'}}>Duke ngarkuar...</div>
+
+  const s = summary || {}
+  const cf: Record<string,number>[] = (s.monthly_cashflow as Record<string,number>[] || [])
+  const maxV = Math.max(...cf.map((m) => Math.max(Number(m.income)||0, Number(m.expenses)||0)), 1)
 
   return (
-    <div className="px-4 py-4 space-y-4">
-
-      {/* HERO — Bilanci */}
-      <div className="bg-gray-900 rounded-2xl p-5 text-white">
-        <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Bilanci Neto</p>
-        <p className="text-3xl font-mono font-medium tracking-tight">
-          {formatAmount(s?.balance ?? 0)}
-        </p>
-        <div className="grid grid-cols-2 gap-3 mt-4 pt-4 border-t border-gray-700">
-          <div>
-            <div className="flex items-center gap-1 text-green-400 text-xs mb-0.5">
-              <TrendingUp className="w-3 h-3" /> Të Ardhura
-            </div>
-            <p className="text-sm font-mono font-medium">{formatAmount(s?.total_income ?? 0)}</p>
-          </div>
-          <div>
-            <div className="flex items-center gap-1 text-red-400 text-xs mb-0.5">
-              <TrendingDown className="w-3 h-3" /> Shpenzime
-            </div>
-            <p className="text-sm font-mono font-medium">{formatAmount(s?.total_expenses ?? 0)}</p>
-          </div>
+    <div style={{padding:'12px',display:'flex',flexDirection:'column',gap:'10px'}}>
+      {/* Hero */}
+      <div style={{background:'#111',borderRadius:'14px',padding:'16px',color:'#fff'}}>
+        <div style={{fontSize:'9px',color:'rgba(255,255,255,.4)',textTransform:'uppercase',letterSpacing:'.6px',marginBottom:'3px'}}>Bilanci Neto</div>
+        <div style={{fontSize:'26px',fontWeight:'500',fontVariantNumeric:'tabular-nums',letterSpacing:'-1px'}}>{formatAmount(Number(s.balance)||0)}</div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'6px',marginTop:'12px',paddingTop:'12px',borderTop:'1px solid rgba(255,255,255,.1)'}}>
+          <div><div style={{fontSize:'9px',color:'rgba(255,255,255,.4)',marginBottom:'2px'}}>Të Ardhura</div><div style={{fontSize:'12px',color:'#86efac',fontVariantNumeric:'tabular-nums'}}>{formatAmount(Number(s.total_income)||0)}</div></div>
+          <div><div style={{fontSize:'9px',color:'rgba(255,255,255,.4)',marginBottom:'2px'}}>Shpenzime</div><div style={{fontSize:'12px',color:'#fca5a5',fontVariantNumeric:'tabular-nums'}}>{formatAmount(Number(s.total_expenses)||0)}</div></div>
         </div>
       </div>
 
-      {/* ALERT PENDING */}
-      {(s?.pending_count ?? 0) > 0 && (
-        <Link href="/dashboard/transactions?filter=pending">
-          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3.5 flex items-center gap-3">
-            <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0" />
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-amber-900">
-                {s?.pending_count} transaksione presin aprovimin
-              </p>
-              <p className="text-xs text-amber-600">{formatAmount(s?.pending_amount ?? 0)}</p>
-            </div>
-            <ChevronRight className="w-4 h-4 text-amber-400" />
+      {/* Pending alert */}
+      {Number(s.pending_count) > 0 && (
+        <Link href="/dashboard/transactions" style={{textDecoration:'none'}}>
+          <div style={{background:'#fffbeb',border:'1px solid #fcd34d',borderRadius:'10px',padding:'10px 12px',display:'flex',alignItems:'center',gap:'8px'}}>
+            <span style={{fontSize:'16px'}}>⚠</span>
+            <span style={{fontSize:'12px',color:'#78350f'}}>{String(s.pending_count)} transaksione presin aprovimin — <b>{formatAmount(Number(s.pending_amount)||0)}</b></span>
           </div>
         </Link>
       )}
 
-      {/* GRID STATISTIKA */}
-      <div className="grid grid-cols-2 gap-3">
-        <div className="bg-white rounded-xl border border-gray-100 p-4">
-          <div className="flex items-center gap-2 mb-2">
-            <CreditCard className="w-4 h-4 text-gray-400" />
-            <span className="text-xs text-gray-500">Kreditë aktive</span>
-          </div>
-          <p className="text-lg font-mono font-medium text-gray-900">
-            {formatAmount(s?.loans_total ?? 0)}
-          </p>
+      {/* Stats */}
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}}>
+        <div style={{background:'#fff',border:'1px solid #e5e7eb',borderRadius:'12px',padding:'12px'}}>
+          <div style={{fontSize:'10px',color:'#9ca3af',marginBottom:'3px'}}>Kreditë aktive</div>
+          <div style={{fontSize:'16px',fontWeight:'500',fontVariantNumeric:'tabular-nums'}}>{formatAmount(Number(s.loans_total)||0)}</div>
         </div>
-        <div className="bg-white rounded-xl border border-gray-100 p-4">
-          <div className="flex items-center gap-2 mb-2">
-            <Building2 className="w-4 h-4 text-gray-400" />
-            <span className="text-xs text-gray-500">Investime aktive</span>
-          </div>
-          <p className="text-lg font-mono font-medium text-gray-900">
-            {s?.active_investments ?? 0}
-          </p>
+        <div style={{background:'#fff',border:'1px solid #e5e7eb',borderRadius:'12px',padding:'12px'}}>
+          <div style={{fontSize:'10px',color:'#9ca3af',marginBottom:'3px'}}>Investime aktive</div>
+          <div style={{fontSize:'16px',fontWeight:'500'}}>{String(s.active_investments||0)}</div>
         </div>
-        {(s?.reimbursements ?? []).length > 0 && (
-          <div className="bg-white rounded-xl border border-gray-100 p-4 col-span-2">
-            <div className="flex items-center gap-2 mb-2">
-              <RefreshCw className="w-4 h-4 text-gray-400" />
-              <span className="text-xs text-gray-500">Rimbursimet e pashlyera</span>
-            </div>
-            {(s?.reimbursements ?? []).map((r: { creditor_name: string; total_outstanding: number }, i: number) => (
-              <div key={i} className="flex justify-between items-center py-1">
-                <span className="text-xs text-gray-600">{r.creditor_name}</span>
-                <span className="text-xs font-mono font-medium text-amber-700">{formatAmount(r.total_outstanding)}</span>
-              </div>
-            ))}
-          </div>
-        )}
       </div>
 
-      {/* CASHFLOW CHART */}
-      {cashflow.length > 0 && (
-        <div className="bg-white rounded-xl border border-gray-100 p-4">
-          <p className="text-sm font-medium text-gray-900 mb-4">Cash Flow — 6 muajt</p>
-          <div className="flex items-end gap-2 h-20">
-            {cashflow.slice(-6).map((m: { month: string; month_label: string; income: number; expenses: number; net: number }, i: number) => (
-              <div key={i} className="flex-1 flex flex-col items-center gap-1">
-                <div className="flex items-end gap-0.5 h-14 w-full">
-                  <div
-                    className="flex-1 bg-green-100 rounded-t-sm"
-                    style={{ height: `${(m.income / maxVal) * 100}%` }}
-                  />
-                  <div
-                    className="flex-1 bg-red-100 rounded-t-sm"
-                    style={{ height: `${(m.expenses / maxVal) * 100}%` }}
-                  />
+      {/* Cashflow chart */}
+      {cf.length > 0 && (
+        <div style={{background:'#fff',border:'1px solid #e5e7eb',borderRadius:'12px',padding:'12px'}}>
+          <div style={{fontSize:'11px',fontWeight:'500',marginBottom:'8px'}}>Cash Flow — {cf.length} muajt</div>
+          <div style={{display:'flex',alignItems:'flex-end',gap:'3px',height:'56px'}}>
+            {cf.slice(-6).map((m, i) => (
+              <div key={i} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:'2px'}}>
+                <div style={{display:'flex',gap:'1px',alignItems:'flex-end',height:'44px',width:'100%'}}>
+                  <div style={{flex:1,background:'#dcfce7',borderRadius:'2px 2px 0 0',height:`${Math.round(((Number(m.income)||0)/maxV)*100)}%`,minHeight:'2px'}}></div>
+                  <div style={{flex:1,background:'#fee2e2',borderRadius:'2px 2px 0 0',height:`${Math.round(((Number(m.expenses)||0)/maxV)*100)}%`,minHeight:'2px'}}></div>
                 </div>
-                <span className="text-[9px] text-gray-400">{m.month_label?.split(' ')[0]}</span>
+                <div style={{fontSize:'8px',color:'#9ca3af'}}>{String(m.month_label||'').split(' ')[0]}</div>
               </div>
             ))}
-          </div>
-          <div className="flex gap-4 mt-3 pt-3 border-t border-gray-50">
-            <div className="flex items-center gap-1.5">
-              <div className="w-2.5 h-2.5 rounded-sm bg-green-100 border border-green-200" />
-              <span className="text-[10px] text-gray-500">Të ardhura</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <div className="w-2.5 h-2.5 rounded-sm bg-red-100 border border-red-200" />
-              <span className="text-[10px] text-gray-500">Shpenzime</span>
-            </div>
           </div>
         </div>
       )}
 
-      {/* TRANSAKSIONET E FUNDIT */}
-      <div className="bg-white rounded-xl border border-gray-100">
-        <div className="flex items-center justify-between p-4 pb-2">
-          <p className="text-sm font-medium text-gray-900">Transaksionet e fundit</p>
-          <Link href="/dashboard/transactions" className="text-xs text-gray-400 flex items-center gap-0.5">
-            Të gjitha <ChevronRight className="w-3 h-3" />
-          </Link>
+      {/* Recent transactions */}
+      <div style={{background:'#fff',border:'1px solid #e5e7eb',borderRadius:'12px',padding:'12px'}}>
+        <div style={{display:'flex',justifyContent:'space-between',marginBottom:'8px'}}>
+          <span style={{fontSize:'11px',fontWeight:'500'}}>Transaksionet e fundit</span>
+          <Link href="/dashboard/transactions" style={{fontSize:'10px',color:'#9ca3af',textDecoration:'none'}}>Të gjitha ›</Link>
         </div>
-        <div className="divide-y divide-gray-50">
-          {(recent ?? []).length === 0 ? (
-            <p className="text-sm text-gray-400 text-center py-8">Nuk ka transaksione</p>
-          ) : (
-            (recent as Transaction[]).map(tx => (
-              <div key={tx.id} className="flex items-center gap-3 px-4 py-3">
-                <div
-                  className="w-2 h-2 rounded-full flex-shrink-0"
-                  style={{ background: tx.category_color ?? '#d1d5db' }}
-                />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-gray-900 truncate">{tx.description}</p>
-                  <p className="text-xs text-gray-400">{formatDateShort(tx.date)}</p>
-                </div>
-                <p className={`text-sm font-mono font-medium ${tx.type === 'income' ? 'text-green-600' : 'text-red-600'}`}>
-                  {tx.type === 'expense' ? '-' : '+'}{formatAmount(tx.amount, '')}
-                </p>
+        {recent.length === 0
+          ? <div style={{textAlign:'center',padding:'16px',fontSize:'11px',color:'#9ca3af'}}>Nuk ka transaksione ende</div>
+          : recent.map((t) => (
+            <div key={String(t.id)} style={{display:'flex',alignItems:'center',gap:'8px',padding:'8px 0',borderBottom:'1px solid #f3f4f6'}}>
+              <div style={{width:'7px',height:'7px',borderRadius:'50%',background:String(t.category_color||'#d1d5db'),flexShrink:0}}></div>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:'11px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{String(t.description||'—')}</div>
+                <div style={{fontSize:'9px',color:'#9ca3af'}}>{formatDateShort(String(t.date||''))}</div>
               </div>
-            ))
-          )}
-        </div>
+              <div style={{fontSize:'11px',fontWeight:'500',fontVariantNumeric:'tabular-nums',color:t.type==='income'?'#16a34a':'#dc2626'}}>
+                {t.type==='expense'?'-':'+'} {formatAmount(Number(t.amount)||0,'')}
+              </div>
+            </div>
+          ))
+        }
       </div>
-
     </div>
   )
 }
