@@ -1,338 +1,230 @@
 'use client'
-import { useState, useEffect, useCallback } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { ImportStaging } from '@/lib/types'
-import { formatAmount, formatDate, STATUS_LABELS, TIPDOK_LABELS } from '@/lib/utils'
-import { ChevronDown, ChevronUp, CheckCircle2, XCircle, RotateCcw, Upload } from 'lucide-react'
 
+const fmt = (n: number) => {
+  if (!n) return '0'
+  if (Math.abs(n) >= 1e6) return (n/1e6).toFixed(2)+'M'
+  if (Math.abs(n) >= 1000) return Math.round(n/1000)+'K'
+  return new Intl.NumberFormat('sq-AL',{maximumFractionDigits:0}).format(n)
+}
+const fmtD = (d: string) => d ? new Date(d).toLocaleDateString('sq-AL',{day:'2-digit',month:'short',year:'numeric'}) : ''
+
+type Row = {
+  id: string; date: string; amount: number; description: string;
+  supplier_name: string; category_name: string; tipdok_label: string;
+  reference_no: string; review_status: string;
+  raw_kod: string; raw_tipdok: string; raw_numdok: string;
+  raw_koment1: string; raw_koment2: string; notes: string;
+}
+
+const ST_COLOR: Record<string,string> = {pending:'#f59e0b',approved:'#16a34a',rejected:'#dc2626',imported:'#6366f1'}
+const ST_BG: Record<string,string> = {pending:'#fffbeb',approved:'#f0fdf4',rejected:'#fef2f2',imported:'#eef2ff'}
+const ST_LABEL: Record<string,string> = {pending:'Në pritje',approved:'Aprovuar',rejected:'Refuzuar',imported:'Kaluar'}
 const CATS = ['Investime Kapitale','Shpenzime Tjera','Qira','Paga & Sigurime','Materiale & Mallra','Transport','Mirëmbajtje','Taksa & Detyrime','Kredi & Interesa']
-const FILTERS = [
-  { id: 'all', label: 'Të gjitha' },
-  { id: 'pending', label: 'Pending' },
-  { id: 'approved', label: 'Aprovuar' },
-  { id: 'rejected', label: 'Refuzuar' },
-  { id: 'imported', label: 'Kaluar' },
-] as const
-
-const STATUS_COLORS = {
-  pending: 'bg-amber-500',
-  approved: 'bg-green-600',
-  rejected: 'bg-red-600',
-  imported: 'bg-blue-600',
-}
-
-const STATUS_BADGE = {
-  pending: 'bg-amber-50 text-amber-800 border border-amber-200',
-  approved: 'bg-green-50 text-green-800 border border-green-200',
-  rejected: 'bg-red-50 text-red-800 border border-red-200',
-  imported: 'bg-blue-50 text-blue-800 border border-blue-200',
-}
-
-type Filter = 'all' | 'pending' | 'approved' | 'rejected' | 'imported'
 
 export default function ImportReviewPage() {
-  const [rows, setRows] = useState<ImportStaging[]>([])
-  const [filter, setFilter] = useState<Filter>('all')
-  const [expanded, setExpanded] = useState<Set<string>>(new Set())
-  const [edits, setEdits] = useState<Record<string, Partial<ImportStaging>>>({})
+  const [rows, setRows] = useState<Row[]>([])
+  const [filter, setFilter] = useState('all')
+  const [expanded, setExpanded] = useState<string|null>(null)
+  const [edits, setEdits] = useState<Record<string,Partial<Row>>>({})
   const [toast, setToast] = useState('')
-  const [showModal, setShowModal] = useState<'bulk' | 'transfer' | null>(null)
-  const [showSuccess, setShowSuccess] = useState<{ transferred: number; total: number } | null>(null)
-  const [saving, setSaving] = useState<string | null>(null)
-  const supabase = createClient()
+  const [modal, setModal] = useState<'bulk'|'transfer'|null>(null)
+  const [success, setSuccess] = useState<{n:number,total:number}|null>(null)
+  const [saving, setSaving] = useState(false)
 
-  const showToast = (msg: string) => {
-    setToast(msg)
-    setTimeout(() => setToast(''), 2500)
-  }
+  const sb = createClient()
 
   const load = useCallback(async () => {
-    const { data } = await supabase
-      .from('import_staging')
-      .select('*')
-      .eq('import_batch', 'azotiku.xls')
-      .order('date', { ascending: true })
-    setRows(data ?? [])
-  }, [supabase])
+    const {data} = await sb.from('import_staging').select('*').eq('import_batch','azotiku.xls').order('date',{ascending:true})
+    setRows((data||[]) as Row[])
+  }, [sb])
 
   useEffect(() => { load() }, [load])
 
-  const counts = {
+  const showToast = (m: string) => { setToast(m); setTimeout(()=>setToast(''),2500) }
+
+  const c = {
     all: rows.length,
-    pending: rows.filter(r => r.review_status === 'pending').length,
-    approved: rows.filter(r => r.review_status === 'approved').length,
-    rejected: rows.filter(r => r.review_status === 'rejected').length,
-    imported: rows.filter(r => r.review_status === 'imported').length,
+    pending: rows.filter(r=>r.review_status==='pending').length,
+    approved: rows.filter(r=>r.review_status==='approved').length,
+    rejected: rows.filter(r=>r.review_status==='rejected').length,
+    imported: rows.filter(r=>r.review_status==='imported').length,
   }
+  const filtered = filter==='all' ? rows : rows.filter(r=>r.review_status===filter)
+  const totalAmt = rows.reduce((s,r)=>s+Number(r.amount),0)
 
-  const totalAmt = rows.reduce((s, r) => s + Number(r.amount), 0)
-  const filtered = filter === 'all' ? rows : rows.filter(r => r.review_status === filter)
-
-  const toggleExpand = (id: string) => {
-    setExpanded(prev => {
-      const next = new Set(prev)
-      next.has(id) ? next.delete(id) : next.add(id)
-      return next
-    })
-  }
-
-  const setEdit = (id: string, field: string, value: string | number) => {
-    setEdits(prev => ({ ...prev, [id]: { ...prev[id], [field]: value } }))
-  }
+  const setEd = (id: string, f: string, v: string|number) => setEdits(p=>({...p,[id]:{...p[id],[f]:v}}))
 
   const save = async (id: string) => {
     const e = edits[id]
-    if (!e || !Object.keys(e).length) { showToast('Nuk ka ndryshime'); return }
-    setSaving(id)
-    const { error } = await supabase.from('import_staging').update(e).eq('id', id)
-    if (!error) {
-      setRows(prev => prev.map(r => r.id === id ? { ...r, ...e } : r))
-      setEdits(prev => { const n = { ...prev }; delete n[id]; return n })
-      showToast('✓ U ruajt')
-    } else showToast('Gabim gjatë ruajtjes')
-    setSaving(null)
+    if (!e||!Object.keys(e).length) { showToast('Nuk ka ndryshime'); return }
+    setSaving(true)
+    await sb.from('import_staging').update(e).eq('id',id)
+    setRows(p=>p.map(r=>r.id===id?{...r,...e}:r))
+    setEdits(p=>{const n={...p};delete n[id];return n})
+    showToast('✓ U ruajt')
+    setSaving(false)
   }
 
-  const updateStatus = async (id: string, status: ImportStaging['review_status']) => {
-    const { error } = await supabase.from('import_staging')
-      .update({ review_status: status, reviewed_at: new Date().toISOString() })
-      .eq('id', id)
-    if (!error) {
-      setRows(prev => prev.map(r => r.id === id ? { ...r, review_status: status } : r))
-      setExpanded(prev => { const n = new Set(prev); n.delete(id); return n })
-      showToast(status === 'approved' ? '✓ Aprovuar' : status === 'rejected' ? 'U refuzua' : 'U kthye Pending')
-    }
+  const updateSt = async (id: string, status: string) => {
+    await sb.from('import_staging').update({review_status:status,reviewed_at:new Date().toISOString()}).eq('id',id)
+    setRows(p=>p.map(r=>r.id===id?{...r,review_status:status}:r))
+    setExpanded(null)
+    showToast(status==='approved'?'✓ Aprovuar':status==='rejected'?'U refuzua':'↩ Kthyer')
   }
 
   const bulkApprove = async () => {
-    setShowModal(null)
-    const { error } = await supabase.from('import_staging')
-      .update({ review_status: 'approved', reviewed_at: new Date().toISOString() })
-      .eq('review_status', 'pending').eq('import_batch', 'azotiku.xls')
-    if (!error) {
-      setRows(prev => prev.map(r => r.review_status === 'pending' ? { ...r, review_status: 'approved' as const } : r))
-      showToast(`✓ ${counts.pending} aprovuan`)
-    }
+    setModal(null)
+    await sb.from('import_staging').update({review_status:'approved',reviewed_at:new Date().toISOString()}).eq('review_status','pending').eq('import_batch','azotiku.xls')
+    setRows(p=>p.map(r=>r.review_status==='pending'?{...r,review_status:'approved'}:r))
+    showToast(`✓ ${c.pending} aprovuan`)
   }
 
   const doTransfer = async () => {
-    setShowModal(null)
-    const { data, error } = await supabase.rpc('rpc_transfer_to_transactions', { p_batch: 'azotiku.xls' })
-    if (!error && data?.success) {
-      setShowSuccess({ transferred: data.transferred, total: data.total_amount })
-      load()
-    } else showToast('Gabim gjatë transferimit')
+    setModal(null)
+    const {data} = await sb.rpc('rpc_transfer_to_transactions',{p_batch:'azotiku.xls'})
+    if (data?.success) { setSuccess({n:data.transferred,total:data.total_amount}); load() }
+    else showToast('Gabim gjatë transferimit')
   }
 
-  if (showSuccess) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center p-8 bg-gray-50">
-        <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center mb-5">
-          <CheckCircle2 className="w-8 h-8 text-green-600" />
+  if (success) return (
+    <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',minHeight:'70vh',padding:'32px',textAlign:'center'}}>
+      <div style={{width:'72px',height:'72px',background:'#f0fdf4',borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 16px',fontSize:'32px'}}>✓</div>
+      <h2 style={{fontSize:'22px',fontWeight:'700',color:'#111',margin:'0 0 8px'}}>Import i Përfunduar!</h2>
+      <p style={{fontSize:'14px',color:'#6b7280',margin:'0 0 24px'}}>{success.n} transaksione u kaluan me sukses.</p>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px',width:'100%',maxWidth:'280px',marginBottom:'24px'}}>
+        <div style={{background:'#f0fdf4',borderRadius:'12px',padding:'14px',textAlign:'center'}}>
+          <p style={{fontSize:'28px',fontWeight:'700',color:'#16a34a',margin:0}}>{success.n}</p>
+          <p style={{fontSize:'11px',color:'#6b7280',margin:'4px 0 0'}}>Të kaluar</p>
         </div>
-        <h2 className="text-xl font-semibold text-gray-900 mb-2 text-center">Import i Përfunduar!</h2>
-        <p className="text-sm text-gray-500 text-center mb-6">
-          {showSuccess.transferred} transaksione u kaluan me sukses.
-        </p>
-        <div className="grid grid-cols-2 gap-4 w-full max-w-xs mb-6">
-          <div className="bg-white rounded-xl border border-gray-100 p-4 text-center">
-            <p className="text-2xl font-mono font-medium text-green-600">{showSuccess.transferred}</p>
-            <p className="text-xs text-gray-500 mt-1">Të kaluar</p>
-          </div>
-          <div className="bg-white rounded-xl border border-gray-100 p-4 text-center">
-            <p className="text-lg font-mono font-medium text-gray-900">{formatAmount(showSuccess.total, '')}</p>
-            <p className="text-xs text-gray-500 mt-1">LEK total</p>
-          </div>
+        <div style={{background:'#f9fafb',borderRadius:'12px',padding:'14px',textAlign:'center'}}>
+          <p style={{fontSize:'20px',fontWeight:'700',color:'#111',margin:0}}>{fmt(success.total)}</p>
+          <p style={{fontSize:'11px',color:'#6b7280',margin:'4px 0 0'}}>LEK total</p>
         </div>
-        <button
-          onClick={() => setShowSuccess(null)}
-          className="bg-gray-900 text-white rounded-xl px-8 py-3 text-sm font-medium w-full max-w-xs"
-        >
-          Kthehu te lista
-        </button>
       </div>
-    )
-  }
+      <button onClick={()=>setSuccess(null)} style={{background:'#111',color:'#fff',border:'none',borderRadius:'12px',padding:'13px 32px',fontSize:'14px',fontWeight:'600',cursor:'pointer'}}>Kthehu</button>
+    </div>
+  )
 
   return (
-    <div className="flex flex-col min-h-full">
+    <div style={{display:'flex',flexDirection:'column',minHeight:'100%'}}>
       {/* Summary */}
-      <div className="px-4 pt-4 space-y-3">
-        <div className="grid grid-cols-4 gap-2">
-          {(['pending','approved','rejected','imported'] as const).map(s => (
-            <div key={s} className="bg-white rounded-xl border border-gray-100 p-2.5 text-center">
-              <p className={`text-lg font-semibold ${s==='pending'?'text-amber-600':s==='approved'?'text-green-600':s==='rejected'?'text-red-600':'text-blue-600'}`}>
-                {counts[s]}
-              </p>
-              <p className="text-[9px] text-gray-400 uppercase tracking-wide mt-0.5">{STATUS_LABELS[s]}</p>
+      <div style={{padding:'16px 16px 0'}}>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:'8px',marginBottom:'10px'}}>
+          {(['pending','approved','rejected','imported'] as const).map(s=>(
+            <div key={s} style={{background:'#fff',border:'1px solid #e5e7eb',borderRadius:'12px',padding:'10px 6px',textAlign:'center'}}>
+              <p style={{fontSize:'20px',fontWeight:'700',color:ST_COLOR[s],margin:0,fontVariantNumeric:'tabular-nums'}}>{c[s]}</p>
+              <p style={{fontSize:'8px',color:'#9ca3af',margin:'3px 0 0',textTransform:'uppercase',letterSpacing:'.3px'}}>{ST_LABEL[s]}</p>
             </div>
           ))}
         </div>
-        <div className="bg-white rounded-xl border border-gray-100 px-4 py-2.5 flex justify-between items-center">
-          <span className="text-xs text-gray-500">Total import</span>
-          <span className="text-sm font-mono font-medium text-gray-900">{formatAmount(totalAmt)}</span>
+        <div style={{background:'#fff',border:'1px solid #e5e7eb',borderRadius:'12px',padding:'10px 14px',display:'flex',justifyContent:'space-between',marginBottom:'10px'}}>
+          <span style={{fontSize:'12px',color:'#6b7280'}}>Total import azotiku.xls</span>
+          <span style={{fontSize:'14px',fontWeight:'700',fontVariantNumeric:'tabular-nums'}}>{fmt(totalAmt)} LEK</span>
+        </div>
+        {/* Filter tabs */}
+        <div style={{display:'flex',gap:'6px',overflowX:'auto',marginBottom:'10px',scrollbarWidth:'none'}}>
+          {[['all','Të gjitha'],['pending','Pending'],['approved','Aprovuar'],['rejected','Refuzuar'],['imported','Kaluar']].map(([id,lbl])=>(
+            <button key={id} onClick={()=>setFilter(id)}
+              style={{flexShrink:0,padding:'5px 12px',borderRadius:'20px',border:'1px solid',fontSize:'11px',fontWeight:'500',cursor:'pointer',fontFamily:'inherit',
+                background:filter===id?'#111':'#fff',color:filter===id?'#fff':'#6b7280',borderColor:filter===id?'#111':'#e5e7eb'}}>
+              {lbl} {c[id as keyof typeof c]}
+            </button>
+          ))}
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-2 px-4 pt-3 overflow-x-auto scrollbar-none pb-1">
-        {FILTERS.map(f => (
-          <button
-            key={f.id}
-            onClick={() => setFilter(f.id as Filter)}
-            className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
-              filter === f.id
-                ? 'bg-gray-900 text-white border-gray-900'
-                : 'bg-white text-gray-500 border-gray-200'
-            }`}
-          >
-            {f.label} {counts[f.id as Filter]}
-          </button>
-        ))}
-      </div>
-
       {/* Cards */}
-      <div className="flex-1 px-4 pt-2 pb-32 space-y-2.5">
-        {filtered.length === 0 && (
-          <div className="text-center py-12 text-sm text-gray-400">Nuk ka të dhëna</div>
-        )}
-        {filtered.map(row => {
-          const ed = edits[row.id] ?? {}
-          const isExp = expanded.has(row.id)
-          const hasEdit = Object.keys(ed).length > 0
-          const st = row.review_status
-
+      <div style={{flex:1,padding:'0 16px',paddingBottom:c.pending>0||c.approved>0?'90px':'16px',display:'flex',flexDirection:'column',gap:'8px'}}>
+        {filtered.length===0 && <div style={{textAlign:'center',padding:'48px',color:'#9ca3af',fontSize:'13px'}}>Nuk ka të dhëna</div>}
+        {filtered.map(r=>{
+          const ed = edits[r.id]||{}
+          const st = r.review_status
+          const isExp = expanded===r.id
           return (
-            <div key={row.id} className="bg-white rounded-xl border border-gray-100 overflow-hidden">
-              <div className="flex">
-                <div className={`w-1 flex-shrink-0 ${STATUS_COLORS[st]}`} />
-                <div className="flex-1 p-3 min-w-0">
-                  <div className="flex justify-between items-start gap-2">
-                    <div>
-                      <span className="text-base font-mono font-semibold text-gray-900">
-                        {formatAmount(Number(ed.amount ?? row.amount), '')}
-                      </span>
-                      <span className="text-xs text-gray-400 ml-1">LEK</span>
-                    </div>
-                    <span className="text-[10px] bg-gray-50 text-gray-500 border border-gray-100 px-1.5 py-0.5 rounded-md flex-shrink-0">
-                      {TIPDOK_LABELS[row.raw_tipdok] ?? row.raw_tipdok}
-                    </span>
+            <div key={r.id} style={{background:'#fff',border:'1px solid #e5e7eb',borderRadius:'14px',overflow:'hidden'}}>
+              <div style={{display:'flex'}}>
+                <div style={{width:'4px',background:ST_COLOR[st],flexShrink:0}}></div>
+                <div style={{flex:1,padding:'12px',minWidth:0}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:'6px'}}>
+                    <span style={{fontSize:'18px',fontWeight:'700',color:'#111',fontVariantNumeric:'tabular-nums'}}>{fmt(Number(ed.amount??r.amount))} <span style={{fontSize:'11px',color:'#9ca3af',fontWeight:'400'}}>LEK</span></span>
+                    <span style={{fontSize:'10px',background:'#f3f4f6',color:'#6b7280',padding:'2px 8px',borderRadius:'8px',flexShrink:0}}>{r.tipdok_label}</span>
                   </div>
-                  <div className="flex gap-1.5 mt-1.5 flex-wrap">
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${STATUS_BADGE[st]}`}>
-                      {STATUS_LABELS[st]}
-                    </span>
-                    {row.reference_no && (
-                      <span className="text-[10px] bg-gray-50 text-gray-400 border border-gray-100 px-1.5 py-0.5 rounded-full">
-                        {row.reference_no}
-                      </span>
-                    )}
-                    {hasEdit && (
-                      <span className="text-[10px] bg-blue-50 text-blue-600 border border-blue-100 px-1.5 py-0.5 rounded-full">
-                        Ndryshuar
-                      </span>
-                    )}
+                  <div style={{display:'flex',gap:'6px',marginBottom:'6px',flexWrap:'wrap'}}>
+                    <span style={{fontSize:'10px',background:ST_BG[st],color:ST_COLOR[st],padding:'2px 8px',borderRadius:'8px',fontWeight:'500'}}>{ST_LABEL[st]}</span>
+                    {r.reference_no && <span style={{fontSize:'10px',background:'#f3f4f6',color:'#6b7280',padding:'2px 8px',borderRadius:'8px'}}>{r.reference_no}</span>}
+                    {edits[r.id]&&Object.keys(edits[r.id]).length>0 && <span style={{fontSize:'10px',background:'#eef2ff',color:'#6366f1',padding:'2px 8px',borderRadius:'8px'}}>● Ndryshuar</span>}
                   </div>
-                  <p className="text-xs text-gray-700 mt-1.5 leading-snug">{ed.description ?? row.description}</p>
-                  <p className="text-[11px] text-gray-400 mt-0.5">{ed.supplier_name ?? row.supplier_name}</p>
-                  <div className="flex gap-3 mt-1">
-                    <span className="text-[10px] text-gray-400">{formatDate(String(ed.date ?? row.date))}</span>
-                    {(ed.category_name ?? row.category_name) && (
-                      <span className="text-[10px] text-gray-400">{ed.category_name ?? row.category_name}</span>
-                    )}
-                  </div>
+                  <p style={{fontSize:'13px',color:'#111',margin:'0 0 2px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{String(ed.description??r.description)}</p>
+                  <p style={{fontSize:'11px',color:'#6b7280',margin:'0 0 3px'}}>{String(ed.supplier_name??r.supplier_name)}</p>
+                  <p style={{fontSize:'10px',color:'#9ca3af',margin:0}}>{fmtD(String(ed.date??r.date))} · {String(ed.category_name??r.category_name)}</p>
                 </div>
-                <button
-                  onClick={() => toggleExpand(row.id)}
-                  className="px-3 flex items-center text-gray-300 flex-shrink-0"
-                >
-                  {isExp ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                </button>
+                {st!=='imported' && (
+                  <button onClick={()=>setExpanded(isExp?null:r.id)}
+                    style={{padding:'12px 14px 12px 4px',border:'none',background:'none',cursor:'pointer',color:'#9ca3af',fontSize:'16px',flexShrink:0,display:'flex',alignItems:'center'}}>
+                    {isExp?'▲':'▼'}
+                  </button>
+                )}
               </div>
 
               {isExp && (
-                <div className="border-t border-gray-50 p-3 space-y-3">
-                  {/* Origjinal */}
-                  <div className="bg-gray-50 rounded-lg p-2.5">
-                    <p className="text-[9px] text-gray-400 uppercase tracking-wider font-medium mb-1.5">Origjinal Excel</p>
-                    <p className="text-[10px] font-mono text-gray-500 leading-relaxed">
-                      KOD: {row.raw_kod} | {row.raw_tipdok}-{row.raw_numdok}<br />
-                      {row.raw_koment1}<br />
-                      {row.raw_koment2}
+                <div style={{borderTop:'1px solid #f3f4f6',padding:'14px',background:'#fafafa'}}>
+                  {/* Original data */}
+                  <div style={{background:'#f1f0e8',borderRadius:'10px',padding:'10px 12px',marginBottom:'12px'}}>
+                    <p style={{fontSize:'9px',color:'#78716c',textTransform:'uppercase',letterSpacing:'.5px',fontWeight:'600',margin:'0 0 4px'}}>Origjinal Excel</p>
+                    <p style={{fontSize:'10px',fontFamily:'monospace',color:'#57534e',margin:0,lineHeight:1.7}}>
+                      KOD: {r.raw_kod} | {r.raw_tipdok}-{r.raw_numdok}<br/>
+                      {r.raw_koment1}<br/>
+                      {r.raw_koment2}
                     </p>
                   </div>
-
-                  {/* Fields */}
-                  <div className="grid grid-cols-2 gap-2">
+                  {/* Edit fields */}
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'8px'}}>
                     <div>
-                      <label className="text-[9px] text-gray-400 uppercase tracking-wider">Data</label>
-                      <input type="date" defaultValue={String(row.date)}
-                        onChange={e => setEdit(row.id, 'date', e.target.value)}
-                        className="mt-1 w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-gray-50 focus:outline-none focus:ring-1 focus:ring-gray-900" />
+                      <label style={{fontSize:'9px',color:'#9ca3af',textTransform:'uppercase',letterSpacing:'.4px',display:'block',marginBottom:'4px'}}>Data</label>
+                      <input type="date" defaultValue={String(r.date)} onChange={e=>setEd(r.id,'date',e.target.value)}
+                        style={{width:'100%',padding:'7px 10px',border:'1px solid #e5e7eb',borderRadius:'8px',fontSize:'12px',boxSizing:'border-box'}}/>
                     </div>
                     <div>
-                      <label className="text-[9px] text-gray-400 uppercase tracking-wider">Shuma (LEK)</label>
-                      <input type="number" defaultValue={Number(row.amount)}
-                        onChange={e => setEdit(row.id, 'amount', parseFloat(e.target.value))}
-                        className="mt-1 w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-gray-50 focus:outline-none focus:ring-1 focus:ring-gray-900" />
+                      <label style={{fontSize:'9px',color:'#9ca3af',textTransform:'uppercase',letterSpacing:'.4px',display:'block',marginBottom:'4px'}}>Shuma</label>
+                      <input type="number" defaultValue={Number(r.amount)} onChange={e=>setEd(r.id,'amount',parseFloat(e.target.value))}
+                        style={{width:'100%',padding:'7px 10px',border:'1px solid #e5e7eb',borderRadius:'8px',fontSize:'12px',boxSizing:'border-box'}}/>
                     </div>
                   </div>
-                  <div>
-                    <label className="text-[9px] text-gray-400 uppercase tracking-wider">Përshkrimi</label>
-                    <input type="text" defaultValue={row.description}
-                      onChange={e => setEdit(row.id, 'description', e.target.value)}
-                      className="mt-1 w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-gray-50 focus:outline-none focus:ring-1 focus:ring-gray-900" />
+                  <div style={{marginBottom:'8px'}}>
+                    <label style={{fontSize:'9px',color:'#9ca3af',textTransform:'uppercase',letterSpacing:'.4px',display:'block',marginBottom:'4px'}}>Përshkrimi</label>
+                    <input type="text" defaultValue={r.description} onChange={e=>setEd(r.id,'description',e.target.value)}
+                      style={{width:'100%',padding:'7px 10px',border:'1px solid #e5e7eb',borderRadius:'8px',fontSize:'12px',boxSizing:'border-box'}}/>
                   </div>
-                  <div>
-                    <label className="text-[9px] text-gray-400 uppercase tracking-wider">Furnitori</label>
-                    <input type="text" defaultValue={row.supplier_name}
-                      onChange={e => setEdit(row.id, 'supplier_name', e.target.value)}
-                      className="mt-1 w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-gray-50 focus:outline-none focus:ring-1 focus:ring-gray-900" />
+                  <div style={{marginBottom:'8px'}}>
+                    <label style={{fontSize:'9px',color:'#9ca3af',textTransform:'uppercase',letterSpacing:'.4px',display:'block',marginBottom:'4px'}}>Furnitori</label>
+                    <input type="text" defaultValue={r.supplier_name} onChange={e=>setEd(r.id,'supplier_name',e.target.value)}
+                      style={{width:'100%',padding:'7px 10px',border:'1px solid #e5e7eb',borderRadius:'8px',fontSize:'12px',boxSizing:'border-box'}}/>
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'12px'}}>
                     <div>
-                      <label className="text-[9px] text-gray-400 uppercase tracking-wider">Kategoria</label>
-                      <select defaultValue={row.category_name}
-                        onChange={e => setEdit(row.id, 'category_name', e.target.value)}
-                        className="mt-1 w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-gray-50 focus:outline-none focus:ring-1 focus:ring-gray-900">
-                        {CATS.map(c => <option key={c}>{c}</option>)}
+                      <label style={{fontSize:'9px',color:'#9ca3af',textTransform:'uppercase',letterSpacing:'.4px',display:'block',marginBottom:'4px'}}>Kategoria</label>
+                      <select defaultValue={r.category_name} onChange={e=>setEd(r.id,'category_name',e.target.value)}
+                        style={{width:'100%',padding:'7px 10px',border:'1px solid #e5e7eb',borderRadius:'8px',fontSize:'12px',boxSizing:'border-box'}}>
+                        {CATS.map(c=><option key={c}>{c}</option>)}
                       </select>
                     </div>
                     <div>
-                      <label className="text-[9px] text-gray-400 uppercase tracking-wider">Shënime</label>
-                      <input type="text" defaultValue={row.notes ?? ''}
-                        onChange={e => setEdit(row.id, 'notes', e.target.value)}
-                        className="mt-1 w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-gray-50 focus:outline-none focus:ring-1 focus:ring-gray-900" />
+                      <label style={{fontSize:'9px',color:'#9ca3af',textTransform:'uppercase',letterSpacing:'.4px',display:'block',marginBottom:'4px'}}>Shënime</label>
+                      <input type="text" defaultValue={r.notes||''} onChange={e=>setEd(r.id,'notes',e.target.value)}
+                        style={{width:'100%',padding:'7px 10px',border:'1px solid #e5e7eb',borderRadius:'8px',fontSize:'12px',boxSizing:'border-box'}}/>
                     </div>
                   </div>
-
-                  {/* Actions */}
-                  {st !== 'imported' && (
-                    <div className="flex gap-2 pt-1">
-                      {st !== 'approved' && (
-                        <button onClick={() => updateStatus(row.id, 'approved')}
-                          className="flex-1 flex items-center justify-center gap-1 bg-green-50 text-green-700 border border-green-200 rounded-lg py-2 text-xs font-medium">
-                          <CheckCircle2 className="w-3.5 h-3.5" /> Aprovo
-                        </button>
-                      )}
-                      {st !== 'rejected' && (
-                        <button onClick={() => updateStatus(row.id, 'rejected')}
-                          className="flex-1 flex items-center justify-center gap-1 bg-red-50 text-red-700 border border-red-200 rounded-lg py-2 text-xs font-medium">
-                          <XCircle className="w-3.5 h-3.5" /> Refuzo
-                        </button>
-                      )}
-                      {st === 'approved' && (
-                        <button onClick={() => updateStatus(row.id, 'pending')}
-                          className="flex items-center justify-center gap-1 bg-gray-50 text-gray-600 border border-gray-200 rounded-lg py-2 px-3 text-xs font-medium">
-                          <RotateCcw className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                      <button onClick={() => save(row.id)} disabled={saving === row.id}
-                        className="bg-gray-100 text-gray-700 rounded-lg py-2 px-4 text-xs font-medium flex-shrink-0 disabled:opacity-50">
-                        {saving === row.id ? '...' : 'Ruaj'}
-                      </button>
-                    </div>
-                  )}
+                  {/* Action buttons */}
+                  <div style={{display:'flex',gap:'8px'}}>
+                    {st!=='approved' && <button onClick={()=>updateSt(r.id,'approved')} style={{flex:1,padding:'9px',background:'#f0fdf4',color:'#16a34a',border:'1px solid #bbf7d0',borderRadius:'10px',fontSize:'12px',fontWeight:'600',cursor:'pointer'}}>✓ Aprovo</button>}
+                    {st!=='rejected' && <button onClick={()=>updateSt(r.id,'rejected')} style={{flex:1,padding:'9px',background:'#fef2f2',color:'#dc2626',border:'1px solid #fecaca',borderRadius:'10px',fontSize:'12px',fontWeight:'600',cursor:'pointer'}}>✕ Refuzo</button>}
+                    {st==='approved' && <button onClick={()=>updateSt(r.id,'pending')} style={{padding:'9px 14px',background:'#f9fafb',color:'#6b7280',border:'1px solid #e5e7eb',borderRadius:'10px',fontSize:'12px',cursor:'pointer'}}>↩</button>}
+                    <button onClick={()=>save(r.id)} disabled={saving} style={{padding:'9px 16px',background:'#f9fafb',color:'#111',border:'1px solid #e5e7eb',borderRadius:'10px',fontSize:'12px',fontWeight:'500',cursor:'pointer',flexShrink:0}}>
+                      {saving?'...':'Ruaj'}
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
@@ -340,68 +232,41 @@ export default function ImportReviewPage() {
         })}
       </div>
 
-      {/* Bottom Bar */}
-      <div className="fixed bottom-16 left-1/2 -translate-x-1/2 w-full max-w-[430px] px-4 flex gap-2">
-        {counts.pending > 0 && (
-          <button onClick={() => setShowModal('bulk')}
-            className="flex-1 bg-amber-600 text-white rounded-xl py-3 text-sm font-medium shadow-sm">
-            Aprovo të gjitha ({counts.pending})
-          </button>
-        )}
-        {counts.approved > 0 && (
-          <button onClick={() => setShowModal('transfer')}
-            className="flex-1 bg-green-700 text-white rounded-xl py-3 text-sm font-medium flex items-center justify-center gap-1.5 shadow-sm">
-            <Upload className="w-4 h-4" /> Kalogo {counts.approved} → TX
-          </button>
-        )}
-      </div>
-
-      {/* Bulk Modal */}
-      {showModal === 'bulk' && (
-        <div className="fixed inset-0 bg-black/40 z-40 flex items-end justify-center" onClick={() => setShowModal(null)}>
-          <div className="bg-white rounded-t-2xl p-6 w-full max-w-[430px]" onClick={e => e.stopPropagation()}>
-            <h3 className="text-base font-semibold text-gray-900 mb-1">Aprovo të gjitha Pending</h3>
-            <p className="text-sm text-gray-500 mb-4">{counts.pending} transaksione do të aprovohen automatikisht.</p>
-            <div className="bg-gray-50 rounded-xl p-3 mb-4 space-y-2">
-              <div className="flex justify-between text-sm"><span className="text-gray-500">Transaksione</span><span className="font-medium">{counts.pending}</span></div>
-              <div className="flex justify-between text-sm"><span className="text-gray-500">Shuma totale</span>
-                <span className="font-medium text-green-700">{formatAmount(rows.filter(r=>r.review_status==='pending').reduce((s,r)=>s+Number(r.amount),0))}</span>
-              </div>
-            </div>
-            <div className="flex gap-2">
-              <button onClick={() => setShowModal(null)} className="flex-1 bg-gray-100 text-gray-600 rounded-xl py-3 text-sm font-medium">Anulo</button>
-              <button onClick={bulkApprove} className="flex-1 bg-amber-600 text-white rounded-xl py-3 text-sm font-medium">Po, Aprovo</button>
-            </div>
-          </div>
+      {/* Bottom bar */}
+      {(c.pending>0||c.approved>0) && (
+        <div style={{position:'fixed',bottom:'60px',left:'50%',transform:'translateX(-50%)',width:'100%',maxWidth:'430px',padding:'10px 16px',background:'rgba(255,255,255,.95)',backdropFilter:'blur(10px)',borderTop:'1px solid #e5e7eb',display:'flex',gap:'8px',zIndex:30}}>
+          {c.pending>0 && <button onClick={()=>setModal('bulk')} style={{flex:1,padding:'11px',background:'#f59e0b',color:'#fff',border:'none',borderRadius:'12px',fontSize:'13px',fontWeight:'600',cursor:'pointer'}}>Aprovo të gjitha ({c.pending})</button>}
+          {c.approved>0 && <button onClick={()=>setModal('transfer')} style={{flex:1,padding:'11px',background:'#16a34a',color:'#fff',border:'none',borderRadius:'12px',fontSize:'13px',fontWeight:'600',cursor:'pointer'}}>Kalogo {c.approved} → TX</button>}
         </div>
       )}
 
-      {/* Transfer Modal */}
-      {showModal === 'transfer' && (
-        <div className="fixed inset-0 bg-black/40 z-40 flex items-end justify-center" onClick={() => setShowModal(null)}>
-          <div className="bg-white rounded-t-2xl p-6 w-full max-w-[430px]" onClick={e => e.stopPropagation()}>
-            <h3 className="text-base font-semibold text-gray-900 mb-1">Kalogo në Transactions</h3>
-            <p className="text-sm text-gray-500 mb-4">Transaksionet kalojnë si të aprovuar dhe nuk mund të fshihen.</p>
-            <div className="bg-gray-50 rounded-xl p-3 mb-4 space-y-2">
-              <div className="flex justify-between text-sm"><span className="text-gray-500">Të aprovuar</span><span className="font-medium text-green-700">{counts.approved}</span></div>
-              <div className="flex justify-between text-sm"><span className="text-gray-500">Shuma</span>
-                <span className="font-medium text-green-700">{formatAmount(rows.filter(r=>r.review_status==='approved').reduce((s,r)=>s+Number(r.amount),0))}</span>
+      {/* Modals */}
+      {modal && (
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.5)',zIndex:50,display:'flex',alignItems:'flex-end',justifyContent:'center'}} onClick={()=>setModal(null)}>
+          <div style={{background:'#fff',borderRadius:'20px 20px 0 0',padding:'24px',width:'100%',maxWidth:'430px'}} onClick={e=>e.stopPropagation()}>
+            <h3 style={{fontSize:'16px',fontWeight:'700',margin:'0 0 6px'}}>{modal==='bulk'?'Aprovo të gjitha':'Kalogo në Transactions'}</h3>
+            <p style={{fontSize:'13px',color:'#6b7280',margin:'0 0 16px'}}>{modal==='bulk'?`${c.pending} transaksione do të aprovohen.`:`${c.approved} transaksione kalohen si të aprovuar.`}</p>
+            <div style={{background:'#f9fafb',borderRadius:'12px',padding:'12px',marginBottom:'16px'}}>
+              <div style={{display:'flex',justifyContent:'space-between',fontSize:'13px',padding:'3px 0'}}>
+                <span style={{color:'#6b7280'}}>Transaksione</span><span style={{fontWeight:'600'}}>{modal==='bulk'?c.pending:c.approved}</span>
+              </div>
+              <div style={{display:'flex',justifyContent:'space-between',fontSize:'13px',padding:'3px 0'}}>
+                <span style={{color:'#6b7280'}}>Shuma</span>
+                <span style={{fontWeight:'600',color:'#16a34a'}}>{fmt(rows.filter(r=>r.review_status===(modal==='bulk'?'pending':'approved')).reduce((s,r)=>s+Number(r.amount),0))} LEK</span>
               </div>
             </div>
-            <div className="flex gap-2">
-              <button onClick={() => setShowModal(null)} className="flex-1 bg-gray-100 text-gray-600 rounded-xl py-3 text-sm font-medium">Anulo</button>
-              <button onClick={doTransfer} className="flex-1 bg-green-700 text-white rounded-xl py-3 text-sm font-medium">Kalogo tani</button>
+            <div style={{display:'flex',gap:'10px'}}>
+              <button onClick={()=>setModal(null)} style={{flex:1,padding:'12px',background:'#f9fafb',border:'1px solid #e5e7eb',borderRadius:'12px',fontSize:'14px',cursor:'pointer'}}>Anulo</button>
+              <button onClick={modal==='bulk'?bulkApprove:doTransfer} style={{flex:1,padding:'12px',background:modal==='bulk'?'#f59e0b':'#16a34a',color:'#fff',border:'none',borderRadius:'12px',fontSize:'14px',fontWeight:'600',cursor:'pointer'}}>
+                {modal==='bulk'?'Po, Aprovo':'Kalogo tani'}
+              </button>
             </div>
           </div>
         </div>
       )}
 
       {/* Toast */}
-      {toast && (
-        <div className="fixed bottom-32 left-1/2 -translate-x-1/2 bg-gray-900 text-white text-xs px-4 py-2 rounded-full z-50 whitespace-nowrap">
-          {toast}
-        </div>
-      )}
+      {toast && <div style={{position:'fixed',bottom:'80px',left:'50%',transform:'translateX(-50%)',background:'#111',color:'#fff',padding:'8px 18px',borderRadius:'20px',fontSize:'12px',zIndex:99,whiteSpace:'nowrap'}}>{toast}</div>}
     </div>
   )
 }
