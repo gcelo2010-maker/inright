@@ -4,155 +4,165 @@ import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
 
 const fmt = (n: number) => {
-  if (!n) return '0'
-  if (Math.abs(n) >= 1e6) return (n/1e6).toFixed(2)+'M'
-  if (Math.abs(n) >= 1000) return (n/1000).toFixed(0)+'K'
+  if (!n && n!==0) return '0'
+  const v = Math.abs(n)
+  if (v>=1e6) return (n/1e6).toFixed(2)+'M'
+  if (v>=1000) return Math.round(n/1000)+'K'
   return new Intl.NumberFormat('sq-AL',{maximumFractionDigits:0}).format(n)
 }
-const fmtDate = (d: string) => d ? new Date(d).toLocaleDateString('sq-AL',{day:'2-digit',month:'short'}) : ''
+const fmtD = (d: string) => d ? new Date(d).toLocaleDateString('sq-AL',{day:'2-digit',month:'short'}) : ''
 
-type StRow = { review_status: string; amount: number }
+type TX = { id:string; type:string; amount:number; description:string; date:string; category_color?:string; category_name?:string; status:string }
 
 export default function DashboardPage() {
-  const [staging, setStaging] = useState<StRow[]>([])
+  const [txs, setTxs] = useState<TX[]>([])
   const [loading, setLoading] = useState(true)
+  const [summary, setSummary] = useState({total:0,income:0,expense:0,pending:0})
 
   useEffect(() => {
     const sb = createClient()
-    sb.from('import_staging')
-      .select('review_status,amount')
-      .eq('import_batch','azotiku.xls')
-      .then(({data}) => {
-        setStaging((data||[]) as StRow[])
-        setLoading(false)
-      })
+    Promise.all([
+      sb.from('transactions').select('*').eq('is_deleted',false).order('date',{ascending:false}).limit(50),
+    ]).then(([{data:tx}]) => {
+      const rows = (tx||[]) as TX[]
+      setTxs(rows)
+      const income = rows.filter(r=>r.type==='income'&&r.status==='approved').reduce((s,r)=>s+Number(r.amount),0)
+      const expense = rows.filter(r=>r.type==='expense'&&r.status==='approved').reduce((s,r)=>s+Number(r.amount),0)
+      const pending = rows.filter(r=>r.status==='pending').length
+      setSummary({total:income-expense, income, expense, pending})
+      setLoading(false)
+    })
   }, [])
 
   if (loading) return (
-    <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'60vh',flexDirection:'column',gap:'12px'}}>
-      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-      <div style={{width:'40px',height:'40px',border:'3px solid #1a1a2e',borderTop:'3px solid #c9a84c',borderRadius:'50%',animation:'spin .8s linear infinite'}}></div>
-      <p style={{color:'#666',fontSize:'13px',letterSpacing:'1px',textTransform:'uppercase'}}>InRight</p>
+    <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'60vh',flexDirection:'column',gap:'16px'}}>
+      <div className="spinner"></div>
+      <p style={{color:'#c9a84c',fontSize:'11px',letterSpacing:'2px'}}>DUKE NGARKUAR</p>
     </div>
   )
 
-  const total = staging.reduce((s,r)=>s+Number(r.amount),0)
-  const pending = staging.filter(r=>r.review_status==='pending')
-  const approved = staging.filter(r=>r.review_status==='approved')
-  const imported = staging.filter(r=>r.review_status==='imported')
-  const pendingAmt = pending.reduce((s,r)=>s+Number(r.amount),0)
-  const approvedAmt = approved.reduce((s,r)=>s+Number(r.amount),0)
-  const importedAmt = imported.reduce((s,r)=>s+Number(r.amount),0)
+  const recent = txs.slice(0,6)
+  const bySupplier = txs.filter(r=>r.type==='expense').reduce((acc:{[k:string]:number},r)=>{
+    acc[r.description] = (acc[r.description]||0)+Number(r.amount)
+    return acc
+  },{})
+  const top5 = Object.entries(bySupplier).sort((a,b)=>b[1]-a[1]).slice(0,5)
 
   return (
-    <div style={{background:'#0a0a0f',minHeight:'100vh',padding:'20px 16px 24px',color:'#fff'}}>
-      <style>{`
-        @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
-        .card-anim{animation:fadeIn .4s ease forwards}
-      `}</style>
+    <div style={{padding:'16px',display:'flex',flexDirection:'column',gap:'14px'}}>
 
-      {/* HEADER */}
-      <div style={{marginBottom:'24px'}} className="card-anim">
-        <p style={{fontSize:'11px',color:'#c9a84c',textTransform:'uppercase',letterSpacing:'2px',margin:'0 0 4px'}}>F4Invest · Import Magazina Fier</p>
-        <h1 style={{fontSize:'28px',fontWeight:'800',letterSpacing:'-1px',margin:0,background:'linear-gradient(135deg,#fff 0%,#c9a84c 100%)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent'}}>
-          {fmt(total)} LEK
-        </h1>
-        <p style={{fontSize:'12px',color:'#666',margin:'4px 0 0'}}>Total import nga azotiku.xls · {staging.length} transaksione</p>
-      </div>
-
-      {/* MAIN STATS */}
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px',marginBottom:'14px'}}>
-        {[
-          {label:'Pending Aprovim',val:pending.length,amt:pendingAmt,color:'#f59e0b',bg:'rgba(245,158,11,.12)',icon:'⏳'},
-          {label:'Aprovuar',val:approved.length,amt:approvedAmt,color:'#c9a84c',bg:'rgba(201,168,76,.12)',icon:'✓'},
-          {label:'Importuar në TX',val:imported.length,amt:importedAmt,color:'#a78bfa',bg:'rgba(167,139,250,.12)',icon:'↗'},
-          {label:'Total Rreshta',val:staging.length,amt:total,color:'#67e8f9',bg:'rgba(103,232,249,.08)',icon:'≡'},
-        ].map((item,i)=>(
-          <div key={i} className="card-anim" style={{
-            background:item.bg,border:`1px solid ${item.color}30`,borderRadius:'16px',
-            padding:'16px',animationDelay:`${i*0.08}s`,opacity:0
-          }}>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:'10px'}}>
-              <span style={{fontSize:'10px',color:'#888',textTransform:'uppercase',letterSpacing:'.8px',lineHeight:1.3}}>{item.label}</span>
-              <span style={{fontSize:'18px'}}>{item.icon}</span>
-            </div>
-            <p style={{fontSize:'28px',fontWeight:'800',color:item.color,margin:'0 0 2px',fontVariantNumeric:'tabular-nums',letterSpacing:'-1px'}}>{item.val}</p>
-            <p style={{fontSize:'11px',color:'#555',margin:0,fontVariantNumeric:'tabular-nums'}}>{fmt(item.amt)} LEK</p>
+      {/* HERO BALANCE */}
+      <div className="fade-up" style={{background:'linear-gradient(135deg,#1a1a24 0%,#22222e 100%)',border:'1px solid rgba(201,168,76,.2)',borderRadius:'20px',padding:'24px',position:'relative',overflow:'hidden'}}>
+        <div style={{position:'absolute',top:'-40px',right:'-40px',width:'160px',height:'160px',background:'radial-gradient(circle,rgba(201,168,76,.08) 0%,transparent 70%)',borderRadius:'50%'}}></div>
+        <div style={{position:'absolute',bottom:'-20px',left:'20px',width:'100px',height:'100px',background:'radial-gradient(circle,rgba(201,168,76,.04) 0%,transparent 70%)',borderRadius:'50%'}}></div>
+        <p style={{fontSize:'10px',color:'#c9a84c',textTransform:'uppercase',letterSpacing:'2px',margin:'0 0 8px'}}>F4Invest · Bilanci Total</p>
+        <p style={{fontSize:'36px',fontWeight:'800',letterSpacing:'-2px',margin:'0 0 20px',background:'linear-gradient(135deg,#ffffff 0%,#c9a84c 60%)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent'}}>
+          {fmt(summary.total)} <span style={{fontSize:'16px',opacity:.5,fontWeight:'400'}}>LEK</span>
+        </p>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'12px'}}>
+          <div style={{background:'rgba(74,222,128,.08)',border:'1px solid rgba(74,222,128,.15)',borderRadius:'12px',padding:'12px'}}>
+            <p style={{fontSize:'9px',color:'rgba(74,222,128,.6)',textTransform:'uppercase',letterSpacing:'1px',margin:'0 0 4px'}}>↑ Të Ardhura</p>
+            <p style={{fontSize:'16px',fontWeight:'700',color:'#4ade80',margin:0,fontVariantNumeric:'tabular-nums'}}>{fmt(summary.income)} L</p>
           </div>
-        ))}
-      </div>
-
-      {/* PROGRESS BAR */}
-      <div className="card-anim" style={{background:'rgba(255,255,255,.04)',border:'1px solid rgba(255,255,255,.08)',borderRadius:'16px',padding:'18px',marginBottom:'14px',animationDelay:'.32s',opacity:0}}>
-        <div style={{display:'flex',justifyContent:'space-between',marginBottom:'12px'}}>
-          <p style={{fontSize:'12px',color:'#888',margin:0,textTransform:'uppercase',letterSpacing:'.8px'}}>Progresi i Importit</p>
-          <p style={{fontSize:'12px',color:'#c9a84c',margin:0,fontWeight:'700'}}>{staging.length>0?Math.round((imported.length/staging.length)*100):0}%</p>
-        </div>
-        <div style={{background:'rgba(255,255,255,.06)',borderRadius:'100px',height:'6px',overflow:'hidden'}}>
-          <div style={{height:'100%',borderRadius:'100px',background:'linear-gradient(90deg,#c9a84c,#f59e0b)',width:`${staging.length>0?(imported.length/staging.length)*100:0}%`,transition:'width 1s ease'}}></div>
-        </div>
-        <div style={{display:'flex',justifyContent:'space-between',marginTop:'10px'}}>
-          <span style={{fontSize:'10px',color:'#555'}}>{imported.length} kaluar</span>
-          <span style={{fontSize:'10px',color:'#555'}}>{staging.length - imported.length} mbetur</span>
+          <div style={{background:'rgba(248,113,113,.08)',border:'1px solid rgba(248,113,113,.15)',borderRadius:'12px',padding:'12px'}}>
+            <p style={{fontSize:'9px',color:'rgba(248,113,113,.6)',textTransform:'uppercase',letterSpacing:'1px',margin:'0 0 4px'}}>↓ Shpenzime</p>
+            <p style={{fontSize:'16px',fontWeight:'700',color:'#f87171',margin:0,fontVariantNumeric:'tabular-nums'}}>{fmt(summary.expense)} L</p>
+          </div>
         </div>
       </div>
 
-      {/* ALERT - pending */}
-      {pending.length > 0 && (
-        <Link href="/dashboard/import-review" style={{textDecoration:'none',display:'block',marginBottom:'14px'}}>
-          <div className="card-anim" style={{background:'rgba(245,158,11,.1)',border:'1.5px solid rgba(245,158,11,.4)',borderRadius:'16px',padding:'16px',display:'flex',alignItems:'center',gap:'12px',animationDelay:'.4s',opacity:0}}>
-            <div style={{width:'44px',height:'44px',background:'rgba(245,158,11,.2)',borderRadius:'12px',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'20px',flexShrink:0}}>⚠</div>
+      {/* PENDING ALERT */}
+      {summary.pending > 0 && (
+        <Link href="/dashboard/transactions" className="fade-up fade-up-1">
+          <div style={{background:'rgba(251,191,36,.08)',border:'1.5px solid rgba(251,191,36,.3)',borderRadius:'16px',padding:'14px 16px',display:'flex',alignItems:'center',gap:'12px'}}>
+            <div style={{width:'40px',height:'40px',background:'rgba(251,191,36,.15)',borderRadius:'12px',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'20px',flexShrink:0,animation:'pulse 2s infinite'}}>⏳</div>
             <div style={{flex:1}}>
-              <p style={{fontSize:'14px',fontWeight:'700',color:'#f59e0b',margin:'0 0 3px'}}>{pending.length} transaksione presin aprovimin</p>
-              <p style={{fontSize:'11px',color:'#f59e0b80',margin:0}}>{fmt(pendingAmt)} LEK · Kliko për të rishikuar →</p>
+              <p style={{fontSize:'13px',fontWeight:'700',color:'#fbbf24',margin:'0 0 2px'}}>{summary.pending} transaksione pending</p>
+              <p style={{fontSize:'11px',color:'rgba(251,191,36,.5)',margin:0}}>Presin aprovimin → Klikoni</p>
             </div>
+            <span style={{color:'#fbbf24',fontSize:'20px'}}>›</span>
           </div>
         </Link>
       )}
 
-      {/* QUICK ACTIONS */}
-      <div className="card-anim" style={{marginBottom:'14px',animationDelay:'.48s',opacity:0}}>
-        <p style={{fontSize:'10px',color:'#555',textTransform:'uppercase',letterSpacing:'1px',margin:'0 0 10px'}}>Veprime të shpejta</p>
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}}>
-          {[
-            {href:'/dashboard/import-review',label:'Rishiko Importin',sub:`${pending.length} pending`,icon:'📋',color:'#c9a84c'},
-            {href:'/dashboard/transactions',label:'Transaksionet',sub:`${imported.length} të importuara`,icon:'💱',color:'#a78bfa'},
-            {href:'/dashboard/loans',label:'Kreditë',sub:'Menaxhim borxhesh',icon:'🏦',color:'#67e8f9'},
-            {href:'/dashboard/investments',label:'Investimet',sub:'Magazina Fier',icon:'🏗️',color:'#4ade80'},
-          ].map((item,i)=>(
-            <Link key={i} href={item.href} style={{textDecoration:'none'}}>
-              <div style={{background:'rgba(255,255,255,.04)',border:'1px solid rgba(255,255,255,.08)',borderRadius:'14px',padding:'14px',cursor:'pointer'}}>
-                <span style={{fontSize:'22px',display:'block',marginBottom:'8px'}}>{item.icon}</span>
-                <p style={{fontSize:'12px',fontWeight:'600',color:'#fff',margin:'0 0 2px'}}>{item.label}</p>
-                <p style={{fontSize:'10px',color:item.color,margin:0}}>{item.sub}</p>
-              </div>
-            </Link>
-          ))}
-        </div>
-      </div>
-
-      {/* SUPPLIER BREAKDOWN */}
-      <div className="card-anim" style={{background:'rgba(255,255,255,.04)',border:'1px solid rgba(255,255,255,.08)',borderRadius:'16px',padding:'18px',animationDelay:'.56s',opacity:0}}>
-        <p style={{fontSize:'12px',color:'#888',textTransform:'uppercase',letterSpacing:'.8px',margin:'0 0 14px'}}>Furnitorët kryesorë</p>
+      {/* STATS */}
+      <div className="fade-up fade-up-2" style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'8px'}}>
         {[
-          {name:'VALONA KOSTRUKSION',amt:13750000,color:'#c9a84c'},
-          {name:'SITUACIONE VALONA',amt:18089790,color:'#f59e0b'},
-          {name:'A A R SH P K',amt:2694000,color:'#a78bfa'},
-          {name:'Taulant Ismailaj',amt:1960000,color:'#67e8f9'},
-          {name:'Genti Celo',amt:staging.filter(r=>r.review_status!=="imported").reduce((s:number,r:StRow)=>s+Number(r.amount),0),color:'#4ade80'},
+          {label:'Transaksione',val:txs.length,color:'#c9a84c',icon:'≡'},
+          {label:'Aprovuara',val:txs.filter(r=>r.status==='approved').length,color:'#4ade80',icon:'✓'},
+          {label:'Pending',val:summary.pending,color:'#fbbf24',icon:'○'},
         ].map((s,i)=>(
-          <div key={i} style={{display:'flex',alignItems:'center',gap:'10px',padding:'8px 0',borderBottom:i<4?'1px solid rgba(255,255,255,.06)':'none'}}>
-            <div style={{width:'8px',height:'8px',borderRadius:'50%',background:s.color,flexShrink:0}}></div>
-            <span style={{flex:1,fontSize:'12px',color:'#ccc',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{s.name}</span>
-            <span style={{fontSize:'12px',fontWeight:'700',color:s.color,fontVariantNumeric:'tabular-nums',flexShrink:0}}>{fmt(s.amt)} L</span>
+          <div key={i} style={{background:'#111118',border:`1px solid ${s.color}20`,borderRadius:'14px',padding:'14px 10px',textAlign:'center'}}>
+            <p style={{fontSize:'22px',margin:'0 0 2px'}}>{s.icon}</p>
+            <p style={{fontSize:'22px',fontWeight:'800',color:s.color,margin:'0 0 3px',fontVariantNumeric:'tabular-nums'}}>{s.val}</p>
+            <p style={{fontSize:'9px',color:'#606070',margin:0,textTransform:'uppercase',letterSpacing:'.5px'}}>{s.label}</p>
           </div>
         ))}
       </div>
 
-      {/* DATE */}
-      <p style={{textAlign:'center',fontSize:'10px',color:'#333',marginTop:'20px',letterSpacing:'1px'}}>
-        {new Date().toLocaleDateString('sq-AL',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}
-      </p>
+      {/* QUICK LINKS */}
+      <div className="fade-up fade-up-3" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}}>
+        {[
+          {href:'/dashboard/import-review',label:'Import Review',sub:'Rishiko staging',icon:'📋',grad:'135deg,#1a1208,#2d1f00',border:'rgba(201,168,76,.2)'},
+          {href:'/dashboard/transactions',label:'Transaksionet',sub:`${txs.length} të regjistruara`,icon:'💱',grad:'135deg,#0a1a0a,#001a0f',border:'rgba(74,222,128,.15)'},
+          {href:'/dashboard/loans',label:'Kreditë',sub:'Menaxhim borxhesh',icon:'🏦',grad:'135deg,#0a0a1a,#00001a',border:'rgba(167,139,250,.15)'},
+          {href:'/dashboard/investments',label:'Investimet',sub:'Magazina Fier',icon:'🏗️',grad:'135deg,#0a1a1a,#001a1a',border:'rgba(103,232,249,.15)'},
+        ].map((item,i)=>(
+          <Link key={i} href={item.href}>
+            <div style={{background:`linear-gradient(${item.grad})`,border:`1px solid ${item.border}`,borderRadius:'16px',padding:'16px',cursor:'pointer',transition:'transform .15s'}}
+              onMouseEnter={e=>(e.currentTarget.style.transform='scale(1.02)')}
+              onMouseLeave={e=>(e.currentTarget.style.transform='scale(1)')}>
+              <span style={{fontSize:'24px',display:'block',marginBottom:'10px'}}>{item.icon}</span>
+              <p style={{fontSize:'12px',fontWeight:'700',color:'#fff',margin:'0 0 3px'}}>{item.label}</p>
+              <p style={{fontSize:'10px',color:'#606070',margin:0}}>{item.sub}</p>
+            </div>
+          </Link>
+        ))}
+      </div>
+
+      {/* TOP SHPENZIME */}
+      <div className="fade-up fade-up-4" style={{background:'#111118',border:'1px solid rgba(255,255,255,.06)',borderRadius:'18px',padding:'18px'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'14px'}}>
+          <p style={{fontSize:'12px',fontWeight:'700',color:'#fff',margin:0,textTransform:'uppercase',letterSpacing:'1px'}}>Top Shpenzime</p>
+          <span style={{fontSize:'10px',color:'#c9a84c'}}>nga azotiku.xls</span>
+        </div>
+        {top5.length===0 ? (
+          <p style={{textAlign:'center',color:'#606070',fontSize:'12px',padding:'16px 0'}}>Nuk ka të dhëna</p>
+        ) : top5.map(([desc,amt],i)=>(
+          <div key={i} style={{display:'flex',alignItems:'center',gap:'10px',padding:'10px 0',borderBottom:i<top5.length-1?'1px solid rgba(255,255,255,.04)':'none'}}>
+            <div style={{width:'6px',height:'6px',borderRadius:'50%',background:['#c9a84c','#f87171','#a78bfa','#67e8f9','#4ade80'][i],flexShrink:0}}></div>
+            <p style={{flex:1,fontSize:'11px',color:'#a0a0b0',margin:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{desc}</p>
+            <p style={{fontSize:'12px',fontWeight:'700',color:['#c9a84c','#f87171','#a78bfa','#67e8f9','#4ade80'][i],margin:0,fontVariantNumeric:'tabular-nums',flexShrink:0}}>{fmt(amt)} L</p>
+          </div>
+        ))}
+      </div>
+
+      {/* RECENT TX */}
+      <div className="fade-up fade-up-5" style={{background:'#111118',border:'1px solid rgba(255,255,255,.06)',borderRadius:'18px',padding:'18px'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'14px'}}>
+          <p style={{fontSize:'12px',fontWeight:'700',color:'#fff',margin:0,textTransform:'uppercase',letterSpacing:'1px'}}>Transaksionet e Fundit</p>
+          <Link href="/dashboard/transactions" style={{fontSize:'10px',color:'#c9a84c'}}>Të gjitha ›</Link>
+        </div>
+        {recent.length===0 ? (
+          <p style={{textAlign:'center',color:'#606070',fontSize:'12px',padding:'16px 0'}}>Nuk ka transaksione</p>
+        ) : recent.map((t,i)=>(
+          <div key={t.id} style={{display:'flex',alignItems:'center',gap:'10px',padding:'10px 0',borderBottom:i<recent.length-1?'1px solid rgba(255,255,255,.04)':'none'}}>
+            <div style={{width:'36px',height:'36px',borderRadius:'10px',background:t.type==='income'?'rgba(74,222,128,.1)':'rgba(248,113,113,.1)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'14px',flexShrink:0}}>
+              {t.type==='income'?'↑':'↓'}
+            </div>
+            <div style={{flex:1,minWidth:0}}>
+              <p style={{fontSize:'12px',fontWeight:'500',color:'#e0e0e8',margin:'0 0 2px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{t.description}</p>
+              <p style={{fontSize:'10px',color:'#606070',margin:0}}>{fmtD(t.date)}</p>
+            </div>
+            <div style={{textAlign:'right',flexShrink:0}}>
+              <p style={{fontSize:'13px',fontWeight:'700',color:t.type==='income'?'#4ade80':'#f87171',margin:'0 0 2px',fontVariantNumeric:'tabular-nums'}}>
+                {t.type==='expense'?'-':'+'}{fmt(Number(t.amount))}
+              </p>
+              {t.status!=='approved' && <span style={{fontSize:'9px',color:'#fbbf24',background:'rgba(251,191,36,.1)',padding:'1px 6px',borderRadius:'6px'}}>{t.status}</span>}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
