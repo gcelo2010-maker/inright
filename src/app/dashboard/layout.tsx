@@ -10,6 +10,7 @@ const NAV = [
   { href:'/dashboard/import-review', icon:'⬆', label:'Importi' },
   { href:'/dashboard/detyrimet', icon:'⬡', label:'Detyrimet' },
   { href:'/dashboard/investments', icon:'◆', label:'Invest' },
+  { href:'/dashboard/settings', icon:'⚙', label:'Settings' },
 ]
 
 export default function Layout({ children }: { children: React.ReactNode }) {
