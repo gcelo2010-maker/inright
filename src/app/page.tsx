@@ -1,17 +1,16 @@
 'use client'
 import { useEffect } from 'react'
-import { useRouter } from 'next/navigation'
 
 export default function Home() {
-  const router = useRouter()
-  useEffect(() => { router.replace('/login') }, [router])
+  useEffect(() => {
+    window.location.href = '/login'
+  }, [])
   return (
-    <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center'}}>
+    <div style={{background:'#0a0a0f',minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center'}}>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
       <div style={{textAlign:'center'}}>
-        <div style={{width:'48px',height:'48px',background:'#111',borderRadius:'12px',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 12px'}}>
-          <span style={{color:'#fff',fontWeight:'700'}}>IR</span>
-        </div>
-        <p style={{color:'#6b7280',fontSize:'14px'}}>Duke ngarkuar...</p>
+        <div style={{width:'40px',height:'40px',border:'2px solid rgba(201,168,76,.3)',borderTop:'2px solid #c9a84c',borderRadius:'50%',animation:'spin .8s linear infinite',margin:'0 auto 12px'}}></div>
+        <p style={{color:'#c9a84c',fontSize:'11px',letterSpacing:'2px',textTransform:'uppercase'}}>InRight</p>
       </div>
     </div>
   )

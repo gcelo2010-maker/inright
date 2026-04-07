@@ -47,7 +47,7 @@ export default function Settings() {
           {err && <div style={{background:'rgba(248,113,113,.1)',border:'1px solid rgba(248,113,113,.3)',borderRadius:'10px',padding:'10px 14px',fontSize:'12px',color:'#f87171'}}>{err}</div>}
           {msg && <div style={{background:'rgba(74,222,128,.1)',border:'1px solid rgba(74,222,128,.3)',borderRadius:'10px',padding:'10px 14px',fontSize:'12px',color:'#4ade80'}}>{msg}</div>}
           <button type="submit" disabled={loading||!newPass||!confirm}
-            style={{padding:'13px',background:'linear-gradient(135deg,#c9a84c,#f0c060)',border:'none',borderRadius:'12px',color:'#0a0a0f',fontSize:'14px',fontWeight:'800',cursor:'pointer',marginTop:'4px',fontFamily:'inherit',opacity:loading||!newPass||!confirm?.5:1}}>
+            style={{padding:'13px',background:'linear-gradient(135deg,#c9a84c,#f0c060)',border:'none',borderRadius:'12px',color:'#0a0a0f',fontSize:'14px',fontWeight:'800',cursor:'pointer',marginTop:'4px',fontFamily:'inherit',opacity:loading||!newPass||!confirm?0.5:1}}>
             {loading?'Duke ndryshuar...':'Ndrysho Fjalëkalimin'}
           </button>
         </form>
