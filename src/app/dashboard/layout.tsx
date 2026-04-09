@@ -1,49 +1,62 @@
 'use client'
 import { useEffect, useState } from 'react'
-import { useRouter, usePathname } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
+import { usePathname, useRouter } from 'next/navigation'
 import Link from 'next/link'
 
+type User = { id: string; username: string; full_name: string; role: string }
+
 const NAV = [
-  { href:'/dashboard', icon:'◈', label:'Paneli' },
-  { href:'/dashboard/transactions', icon:'⇄', label:'TX' },
-  { href:'/dashboard/import-review', icon:'⬆', label:'Importi' },
-  { href:'/dashboard/detyrimet', icon:'⬡', label:'Detyrimet' },
-  { href:'/dashboard/investments', icon:'◆', label:'Invest' },
-  { href:'/dashboard/settings', icon:'⚙', label:'Settings' },
+  { href:'/dashboard',                icon:'◈', label:'Paneli' },
+  { href:'/dashboard/transactions',   icon:'⇄', label:'TX' },
+  { href:'/dashboard/import-review',  icon:'⬆', label:'Importi' },
+  { href:'/dashboard/detyrimet',      icon:'⬡', label:'Detyrimet' },
+  { href:'/dashboard/investments',    icon:'◆', label:'Invest' },
 ]
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const path = usePathname()
-  const [user, setUser] = useState<{email?:string}|null>(null)
+  const [user, setUser] = useState<User|null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const sb = createClient()
-    sb.auth.getUser().then(({data}) => {
-      if (!data.user) { router.replace('/login') }
-      else { setUser(data.user); setLoading(false) }
-    })
+    const stored = localStorage.getItem('inright_user')
+    if (!stored) {
+      router.replace('/login')
+      return
+    }
+    try {
+      const u = JSON.parse(stored)
+      // Session skadon pas 7 ditësh
+      if (Date.now() - u.logged_at > 7 * 24 * 60 * 60 * 1000) {
+        localStorage.removeItem('inright_user')
+        router.replace('/login')
+        return
+      }
+      setUser(u)
+    } catch {
+      router.replace('/login')
+    }
+    setLoading(false)
   }, [router])
 
   if (loading) return (
     <div style={{background:'#0a0a0f',minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',flexDirection:'column',gap:'16px'}}>
-      <style>{`@keyframes spin{to{transform:rotate(360deg)}} @keyframes pulse{0%,100%{opacity:.4}50%{opacity:1}}`}</style>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
       <div style={{width:'44px',height:'44px',border:'2px solid #c9a84c30',borderTop:'2px solid #c9a84c',borderRadius:'50%',animation:'spin .8s linear infinite'}}></div>
-      <p style={{color:'#c9a84c',fontSize:'11px',letterSpacing:'3px',textTransform:'uppercase',animation:'pulse 2s infinite'}}>InRight</p>
+      <p style={{color:'#c9a84c',fontSize:'11px',letterSpacing:'3px',textTransform:'uppercase'}}>InRight</p>
     </div>
   )
 
   return (
-    <div style={{background:'#0a0a0f',minHeight:'100vh',maxWidth:'430px',margin:'0 auto',display:'flex',flexDirection:'column',position:'relative'}}>
+    <div style={{background:'#0a0a0f',minHeight:'100vh',maxWidth:'430px',margin:'0 auto',display:'flex',flexDirection:'column'}}>
       <style>{`
         @keyframes spin{to{transform:rotate(360deg)}}
         @keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
         .au{animation:fadeUp .45s ease forwards;opacity:0}
-        *{-webkit-tap-highlight-color:transparent;scrollbar-width:none}
-        *::-webkit-scrollbar{display:none}
-        input,select,textarea{background:rgba(255,255,255,.06)!important;color:#fff!important;border:1px solid rgba(255,255,255,.12)!important;border-radius:10px!important;padding:10px 12px!important;font-size:13px!important;width:100%!important;box-sizing:border-box!important;font-family:inherit!important;}
+        *{-webkit-tap-highlight-color:transparent}
+        ::-webkit-scrollbar{display:none}
+        input,select,textarea{background:rgba(255,255,255,.06)!important;color:#fff!important;border:1px solid rgba(255,255,255,.12)!important;border-radius:10px!important;padding:10px 12px!important;font-size:13px!important;width:100%!important;box-sizing:border-box!important;font-family:inherit!important;outline:none!important;}
         input::placeholder{color:#444!important}
         option{background:#111!important;color:#fff!important}
         input[type=date]::-webkit-calendar-picker-indicator{filter:invert(1);opacity:.4}
@@ -61,8 +74,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           </div>
         </div>
         <div style={{display:'flex',alignItems:'center',gap:'10px'}}>
-          <span style={{fontSize:'10px',color:'#555',maxWidth:'120px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{user?.email}</span>
-          <button onClick={async()=>{await createClient().auth.signOut();router.replace('/login')}}
+          <span style={{fontSize:'11px',color:'#555'}}>{user?.full_name}</span>
+          <button
+            onClick={()=>{localStorage.removeItem('inright_user');window.location.href='/login'}}
             style={{fontSize:'10px',color:'#c9a84c',border:'1px solid rgba(201,168,76,0.3)',background:'transparent',padding:'4px 10px',borderRadius:'20px',cursor:'pointer',fontFamily:'inherit'}}>
             Dilni
           </button>
